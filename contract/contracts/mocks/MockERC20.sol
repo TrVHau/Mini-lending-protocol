@@ -5,23 +5,21 @@ import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 
 contract MockERC20 is ERC20 {
     uint8 private immutable _decimals;
-    
+
     constructor(
-        string memory name,
-        string memory symbol,
-        uint8 decimals
-    ) ERC20(name, symbol) {
-        require(decimals <=18, "DECIMAL_TOO_LARGE");
-        _decimals = decimals;
+        string memory name_,
+        string memory symbol_,
+        uint8 decimals_
+    ) ERC20(name_, symbol_) {
+        require(decimals_ <= 18, "DECIMALS_TOO_HIGH");
+        _decimals = decimals_;
     }
 
-    function decimals() public view virtual override returns (uint8) {
+    function decimals() public view override returns (uint8) {
         return _decimals;
     }
 
-    // test only 
-    function mint(address to, uint256 amount) public {
+    function mint(address to, uint256 amount) external {
         _mint(to, amount);
     }
-    
 }
