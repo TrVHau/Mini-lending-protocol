@@ -19,13 +19,13 @@ library MathUtils {
     function clamp(uint256 x, uint256 lo, uint256 hi) internal pure returns (uint256) {
         if(x < lo) return lo;
         if(x > hi) return hi;
-        return min(max(x, lo), hi);
+        return x;
     }
 
     // div 
 
     function mulDivDown(uint256 a, uint256 b, uint256 denominator) internal pure returns (uint256) {
-        require(denominator !=0, "DIV BY REZO");
+        require(denominator !=0, "DIV_BY_REZO");
         
         unchecked {
             //  [prod1 prod0] = a * b
@@ -115,7 +115,7 @@ library MathUtils {
             return mulDivDown(a, BPS, b);
         }
     
-    function accureIndexLinearRay(uint256 index, uint256 rate, uint256 dt) internal pure returns (uint256) {
+    function accrueIndexLinearRay(uint256 index, uint256 rate, uint256 dt) internal pure returns (uint256) {
         if(dt ==0 || rate == 0) return index;
         uint256 interestFactorRay = mulDivDown(rate, dt,1);
         uint256 deltaIndex = mulRayDown(index, interestFactorRay);  // index * (rate*dt) / RAY
@@ -128,5 +128,10 @@ library MathUtils {
         return annualRateRay / SECOND_PER_YEAR;
     }
     
+    function scaleDecimals(uint256 amount, uint8 fromDec, uint8 toDec) internal pure returns (uint256) {
+    if (fromDec == toDec) return amount;
+    if (fromDec < toDec) return amount * (10 ** (toDec - fromDec));
+    return amount / (10 ** (fromDec - toDec)); // round down
+    }
     
 }
