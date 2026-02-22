@@ -2,9 +2,9 @@
 pragma solidity ^0.8.24;
 
 interface IAToken {
-    function FOOL() external view returns (address);
+    function POOL() external view returns (address);
 
-    function UNDERLYING_ASSET_ADDRESS() external view returns (address);
+    function UNDERLYING_ASSET() external view returns (address);
 
     function decimals() external view returns (uint8);
 

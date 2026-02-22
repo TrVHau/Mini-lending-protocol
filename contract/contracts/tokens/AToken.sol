@@ -1,42 +1,53 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "../interfaces/IAToken.sol";
 import "../libraries/MathUtils.sol";
 
-contract AToken is ERC20, IAToken {
+/// @title AToken
+/// @notice Accounting-layer receipt token. Balances are stored scaled by the
+///         liquidity index so they accrue interest passively without any
+///         state writes. There is intentionally no ERC-20 transfer surface
+///         (MVP: only the pool may mint/burn).
+contract AToken is IAToken {
     using MathUtils for uint256;
 
-    address public immutable override FOOL;
-    address public immutable override UNDERLYING_ASSET_ADDRESS;
+    uint256 private constant RAY = 1e27;
+
+    address public immutable override POOL;
+    address public immutable override UNDERLYING_ASSET;
 
     uint8 private immutable _decimals;
+
+    string public name;
+    string public symbol;
 
     mapping(address => uint256) private _scaledBalances;
     uint256 private _scaledTotalSupply;
 
     constructor(
-        address fool,
+        address pool,
         address underlyingAsset,
-        string memory name,
-        string memory symbol,
+        string memory name_,
+        string memory symbol_,
         uint8 decimals_
-    ) ERC20(name, symbol) {
-        require(fool != address(0),"POOL_REZO");
-        require(underlyingAsset != address(0),"UNDERLYING_REZO");
-        require(decimals_<=18,"DECIMALS_TO_HIGH");
-        FOOL = fool;
-        UNDERLYING_ASSET_ADDRESS = underlyingAsset;
+    ) {
+        require(pool != address(0), "POOL_ZERO");
+        require(underlyingAsset != address(0), "UNDERLYING_ZERO");
+        require(decimals_ <= 18, "DECIMALS_TOO_HIGH");
+        POOL = pool;
+        UNDERLYING_ASSET = underlyingAsset;
+        name = name_;
+        symbol = symbol_;
         _decimals = decimals_;
     }
 
     modifier onlyPool() {
-        require(msg.sender == FOOL, "ONLY_POOL");
+        require(msg.sender == POOL, "ONLY_POOL");
         _;
     }
 
-    function decimals() public view override(ERC20,IAToken) returns (uint8) {
+    function decimals() public view override returns (uint8) {
         return _decimals;
     }
 
@@ -60,7 +71,9 @@ contract AToken is ERC20, IAToken {
 
     // Pool-only state mutating functions
     function mint(address user, uint256 amount, uint256 liquidityIndexRay) external override onlyPool returns (bool) {
+        require(user != address(0), "USER_ZERO");
         require(amount > 0, "INVALID_AMOUNT");
+        require(liquidityIndexRay >= RAY, "INDEX_TOO_LOW");
         uint256 scaledAmount = amount.divRayDown(liquidityIndexRay);
         _scaledBalances[user] += scaledAmount;
         _scaledTotalSupply += scaledAmount;
@@ -68,7 +81,9 @@ contract AToken is ERC20, IAToken {
     }
 
     function burn(address user, uint256 amount, uint256 liquidityIndexRay) external override onlyPool returns (bool) {
+        require(user != address(0), "USER_ZERO");
         require(amount > 0, "INVALID_AMOUNT");
+        require(liquidityIndexRay >= RAY, "INDEX_TOO_LOW");
         uint256 scaledAmount = amount.divRayDown(liquidityIndexRay);
         require(_scaledBalances[user] >= scaledAmount, "BURN_EXCEEDS_BALANCE");
         _scaledBalances[user] -= scaledAmount;
