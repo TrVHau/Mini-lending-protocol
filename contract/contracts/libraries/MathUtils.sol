@@ -22,10 +22,12 @@ library MathUtils {
         return x;
     }
 
-    // div 
+    // ---------------------------------------------------------------------------
+    // Full-precision 512-bit multiply-then-divide (rounds down)
+    // ---------------------------------------------------------------------------
 
     function mulDivDown(uint256 a, uint256 b, uint256 denominator) internal pure returns (uint256) {
-        require(denominator !=0, "DIV_BY_REZO");
+        require(denominator != 0, "DIV_BY_ZERO");
         
         unchecked {
             //  [prod1 prod0] = a * b
@@ -83,55 +85,77 @@ library MathUtils {
             return result;
         }
     }
-    // WAD  1e18
-        function mulWadDown(uint256 a, uint256 b) internal pure returns (uint256) {
-            // floor(a * b / WAD)
-            return mulDivDown(a, b, WAD);
-        }
+    // ---------------------------------------------------------------------------
+    // WAD (1e18) arithmetic
+    // ---------------------------------------------------------------------------
 
-         function divWadDown(uint256 a, uint256 b) internal pure returns (uint256) {
-            // floor(a * WAD / b)
-            return mulDivDown(a, WAD, b);
-        }
-    // RAY 1e27
-        function mulRayDown(uint256 a, uint256 b) internal pure returns (uint256) {
-            // floor(a * b / RAY)
-            return mulDivDown(a, b, RAY);
-        }
+    /// @notice floor(a * b / WAD)
+    function mulWadDown(uint256 a, uint256 b) internal pure returns (uint256) {
+        return mulDivDown(a, b, WAD);
+    }
 
-         function divRayDown(uint256 a, uint256 b) internal pure returns (uint256) {
-            // floor(a * RAY / b)
-            return mulDivDown(a, RAY, b);
-        }
+    /// @notice floor(a * WAD / b)
+    function divWadDown(uint256 a, uint256 b) internal pure returns (uint256) {
+        return mulDivDown(a, WAD, b);
+    }
 
-    // BPS 1e4
-        function mulBpsDown(uint256 a, uint256 b) internal pure returns (uint256) {
-            // floor(a * b / BPS)
-            return mulDivDown(a, b, BPS);
-        }
+    // ---------------------------------------------------------------------------
+    // RAY (1e27) arithmetic
+    // ---------------------------------------------------------------------------
 
-         function divBpsDown(uint256 a, uint256 b) internal pure returns (uint256) {
-            // floor(a * BPS / b)
-            return mulDivDown(a, BPS, b);
-        }
-    
+    /// @notice floor(a * b / RAY)
+    function mulRayDown(uint256 a, uint256 b) internal pure returns (uint256) {
+        return mulDivDown(a, b, RAY);
+    }
+
+    /// @notice floor(a * RAY / b)
+    function divRayDown(uint256 a, uint256 b) internal pure returns (uint256) {
+        return mulDivDown(a, RAY, b);
+    }
+
+    // ---------------------------------------------------------------------------
+    // BPS (1e4) arithmetic
+    // ---------------------------------------------------------------------------
+
+    /// @notice floor(a * b / BPS)
+    function mulBpsDown(uint256 a, uint256 b) internal pure returns (uint256) {
+        return mulDivDown(a, b, BPS);
+    }
+
+    /// @notice floor(a * BPS / b)
+    function divBpsDown(uint256 a, uint256 b) internal pure returns (uint256) {
+        return mulDivDown(a, BPS, b);
+    }
+
+    // ---------------------------------------------------------------------------
+    // Interest index helpers
+    // ---------------------------------------------------------------------------
+
+    /// @notice Linearly accrues an interest index.
+    ///         new_index = index + index * rate * dt / RAY
+    ///         `rate` is a per-second rate in RAY; mulDivDown(rate, dt, 1) computes rate*dt via 512-bit mul.
     function accrueIndexLinearRay(uint256 index, uint256 rate, uint256 dt) internal pure returns (uint256) {
-        if(dt ==0 || rate == 0) return index;
-        uint256 interestFactorRay = mulDivDown(rate, dt,1);
-        uint256 deltaIndex = mulRayDown(index, interestFactorRay);  // index * (rate*dt) / RAY
+        if (dt == 0 || rate == 0) return index;
+        uint256 rateTimesDt = mulDivDown(rate, dt, 1);
+        uint256 deltaIndex = mulRayDown(index, rateTimesDt);
         return index + deltaIndex;
     }
 
+    /// @notice Converts an annual rate in WAD to a per-second rate in RAY.
     function annualWadToPerSecondRay(uint256 annualWad) internal pure returns (uint256) {
-        uint256 SECOND_PER_YEAR = 365 days;
+        uint256 secondsPerYear = 365 days;
         uint256 annualRateRay = mulDivDown(annualWad, RAY, WAD);
-        return annualRateRay / SECOND_PER_YEAR;
+        return annualRateRay / secondsPerYear;
     }
-    
+
+    // ---------------------------------------------------------------------------
+    // Decimal scaling
+    // ---------------------------------------------------------------------------
+
+    /// @notice Converts `amount` from `fromDec` to `toDec` decimals (rounds down).
     function scaleDecimals(uint256 amount, uint8 fromDec, uint8 toDec) internal pure returns (uint256) {
-    if (fromDec == toDec) return amount;
-    if (fromDec < toDec) return amount * (10 ** (toDec - fromDec));
-    return amount / (10 ** (fromDec - toDec)); // round down
+        if (fromDec == toDec) return amount;
+        if (fromDec < toDec) return amount * (10 ** (toDec - fromDec));
+        return amount / (10 ** (fromDec - toDec));
     }
-    
 }
