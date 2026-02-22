@@ -17,7 +17,7 @@ interface IVariableDebtToken {
     function balanceOfWithIndex(address user, uint256 borrowIndexRay) external view returns (uint256);
     function totalSupplyWithIndex(uint256 borrowIndexRay) external view returns (uint256);
 
-    // Pool-only functions
-    function mint(address user, uint256 amount, uint256 borrowIndexRay) external returns (bool);
-    function burn(address user, uint256 amount, uint256 borrowIndexRay) external returns (bool);
+    // Pool-only functions — return the scaled amount stored
+    function mint(address user, uint256 amount, uint256 borrowIndexRay) external returns (uint256 scaledAmount);
+    function burn(address user, uint256 amount, uint256 borrowIndexRay) external returns (uint256 scaledAmount);
 }
