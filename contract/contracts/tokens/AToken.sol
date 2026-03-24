@@ -3,6 +3,8 @@ pragma solidity ^0.8.24;
 
 import "../interfaces/IAToken.sol";
 import "../libraries/MathUtils.sol";
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 /// @title AToken
 /// @notice Accounting-layer receipt token. Balances are stored scaled by the
@@ -10,6 +12,7 @@ import "../libraries/MathUtils.sol";
 ///         state writes. There is intentionally no ERC-20 transfer surface
 ///         (MVP: only the pool may mint/burn).
 contract AToken is IAToken {
+    using SafeERC20 for IERC20;
     using MathUtils for uint256;
 
     uint256 private constant RAY = 1e27;
@@ -60,6 +63,11 @@ contract AToken is IAToken {
 
     function totalSupplyWithIndex(uint256 liquidityIndexRay) public view override returns (uint256) {
         return _scaledTotalSupply.mulRayDown(liquidityIndexRay);
+    }
+
+    // saveTransfer
+    function transferUnderlyingTo(address to, uint256 amount) external override onlyPool {
+        IERC20(UNDERLYING_ASSET).safeTransfer(to, amount);
     }
 
     // Pool-only state mutating functions

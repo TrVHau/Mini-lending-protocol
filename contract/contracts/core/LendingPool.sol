@@ -9,9 +9,11 @@ import "../interfaces/IVariableDebtToken.sol";
 import "../libraries/MathUtils.sol";
 
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract LendingPool is ILendingPool, Ownable {
     using MathUtils for uint256;
+    using SafeERC20 for IERC20;
 
     // event 
     event Deposit(address indexed user, address indexed asset, uint256 amount);
@@ -159,9 +161,7 @@ contract LendingPool is ILendingPool, Ownable {
         return (address(r.aToken), address(r.variableDebtToken));
     }
 
-    // -----------------------------------------------------------------------
-    // ILendingPool placeholders (implemented in Phase 2+)
-    // -----------------------------------------------------------------------
+    // user 
 
     function deposit(address asset, uint256 amount) external override {
         require(amount > 0, "INVALID_AMOUNT");
@@ -171,8 +171,7 @@ contract LendingPool is ILendingPool, Ownable {
         require(!r.isFrozen, "RESERVE_FROZEN");
 
         _updateReserve(asset);
-        bool ok = IERC20(asset).transferFrom(msg.sender, address(r.aToken), amount);
-        require(ok, "TRANSFER_FAILED");
+        IERC20(asset).safeTransferFrom(msg.sender, address(r.aToken), amount);
         uint256 scaledAmount = r.aToken.mint(msg.sender, amount, r.liquidityIndexRay);
         require(scaledAmount > 0, "MINT_FAILED");
 
@@ -184,13 +183,11 @@ contract LendingPool is ILendingPool, Ownable {
         ReserveData storage r = reserves[asset];
         require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
         require(r.isActive, "RESERVE_INACTIVE");
-        require(!r.isFrozen, "RESERVE_FROZEN");
 
         _updateReserve(asset);
         uint256 scaledAmount = r.aToken.burn(msg.sender, amount, r.liquidityIndexRay);
         require(scaledAmount > 0, "BURN_FAILED");
-        bool ok = IERC20(asset).transferFrom(address(r.aToken), msg.sender, amount);
-        require(ok, "TRANSFER_FAILED");
+        r.aToken.transferUnderlyingTo(msg.sender, amount);
 
         emit Withdraw(msg.sender, asset, amount);
     }
@@ -203,10 +200,21 @@ contract LendingPool is ILendingPool, Ownable {
         require(!r.isFrozen, "RESERVE_FROZEN");
 
         _updateReserve(asset);
+
+        uint256 availableLiquidity = IERC20(asset).balanceOf(address(r.aToken));
+        require(availableLiquidity >= amount, "INSUFFICIENT_LIQUIDITY");
+
+        uint256 collateralAmount = r.aToken.balanceOfWithIndex(msg.sender, r.liquidityIndexRay);
+        uint256 collateralUsdWad = _assetToUsdWad(asset, collateralAmount);
+        uint256 maxBorrowUsdWad = collateralUsdWad.mulBpsDown(r.ltvBps);
+
+        uint256 currentDebtAmount = r.variableDebtToken.balanceOfWithIndex(msg.sender, r.borrowIndexRay);
+        uint256 debtAfterBorrowUsdWad = _assetToUsdWad(asset, currentDebtAmount + amount);
+        require(debtAfterBorrowUsdWad <= maxBorrowUsdWad, "INSUFFICIENT_COLLATERAL");
+
         uint256 scaledAmount = r.variableDebtToken.mint(msg.sender, amount, r.borrowIndexRay);
         require(scaledAmount > 0, "MINT_FAILED");
-        bool ok = IERC20(asset).transferFrom(address(r.aToken), msg.sender, amount);
-        require(ok, "TRANSFER_FAILED"); 
+        r.aToken.transferUnderlyingTo(msg.sender, amount);
 
         emit Borrow(msg.sender, asset, amount);
     }
@@ -216,15 +224,19 @@ contract LendingPool is ILendingPool, Ownable {
         ReserveData storage r = reserves[asset];
         require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
         require(r.isActive, "RESERVE_INACTIVE");
-        require(!r.isFrozen, "RESERVE_FROZEN");
 
         _updateReserve(asset);
-        uint256 scaledAmount = r.variableDebtToken.burn(msg.sender, amount, r.borrowIndexRay);
-        require(scaledAmount > 0, "BURN_FAILED");
-        bool ok = IERC20(asset).transferFrom(msg.sender, address(r.aToken), amount);
-        require(ok, "TRANSFER_FAILED");
 
-        emit Repay(msg.sender, asset, amount);
+        uint256 debt = r.variableDebtToken.balanceOfWithIndex(msg.sender, r.borrowIndexRay);
+        uint256 payback = amount>debt ? debt:amount;
+        require(payback>0,"NO_DEBT");
+
+        uint256 burnedScaledAmount = r.variableDebtToken.burn(msg.sender, payback, r.borrowIndexRay);
+        require(burnedScaledAmount > 0, "BURN_FAILED");
+
+        IERC20(asset).safeTransferFrom(msg.sender, address(r.aToken), payback);
+
+        emit Repay(msg.sender, asset, payback);
     }
 
     function getHealthFactor(address) external pure override returns (uint256) {

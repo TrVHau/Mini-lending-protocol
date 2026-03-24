@@ -17,6 +17,8 @@ interface IAToken {
     function balanceOfWithIndex(address user, uint256 liquidityIndexRay) external view returns (uint256);
     function totalSupplyWithIndex(uint256 liquidityIndexRay) external view returns (uint256);
 
+    function transferUnderlyingTo(address to, uint256 amount) external;
+
     // Pool-only functions — return the scaled amount stored
     function mint(address user, uint256 amount, uint256 liquidityIndexRay) external returns (uint256 scaledAmount);
     function burn(address user, uint256 amount, uint256 liquidityIndexRay) external returns (uint256 scaledAmount);
