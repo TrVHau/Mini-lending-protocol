@@ -170,7 +170,7 @@ contract LendingPool is ILendingPool, Ownable {
         require(r.isActive, "RESERVE_INACTIVE");
         require(!r.isFrozen, "RESERVE_FROZEN");
 
-            _updateReserve(asset);
+        _updateReserve(asset);
         bool ok = IERC20(asset).transferFrom(msg.sender, address(r.aToken), amount);
         require(ok, "TRANSFER_FAILED");
         uint256 scaledAmount = r.aToken.mint(msg.sender, amount, r.liquidityIndexRay);
@@ -195,12 +195,36 @@ contract LendingPool is ILendingPool, Ownable {
         emit Withdraw(msg.sender, asset, amount);
     }
 
-    function borrow(address, uint256) external pure override {
-        revert("NOT_IMPLEMENTED_PHASE3");
+    function borrow(address asset, uint256 amount) external override {
+        require(amount>0,"INVALID_AMOUNT");
+        ReserveData storage r = reserves[asset];
+        require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
+        require(r.isActive, "RESERVE_INACTIVE");
+        require(!r.isFrozen, "RESERVE_FROZEN");
+
+        _updateReserve(asset);
+        uint256 scaledAmount = r.variableDebtToken.mint(msg.sender, amount, r.borrowIndexRay);
+        require(scaledAmount > 0, "MINT_FAILED");
+        bool ok = IERC20(asset).transferFrom(address(r.aToken), msg.sender, amount);
+        require(ok, "TRANSFER_FAILED"); 
+
+        emit Borrow(msg.sender, asset, amount);
     }
 
-    function repay(address, uint256) external pure override {
-        revert("NOT_IMPLEMENTED_PHASE3");
+    function repay(address asset, uint256 amount) external override {
+        require(amount>0,"INVALID_AMOUNT");
+        ReserveData storage r = reserves[asset];
+        require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
+        require(r.isActive, "RESERVE_INACTIVE");
+        require(!r.isFrozen, "RESERVE_FROZEN");
+
+        _updateReserve(asset);
+        uint256 scaledAmount = r.variableDebtToken.burn(msg.sender, amount, r.borrowIndexRay);
+        require(scaledAmount > 0, "BURN_FAILED");
+        bool ok = IERC20(asset).transferFrom(msg.sender, address(r.aToken), amount);
+        require(ok, "TRANSFER_FAILED");
+
+        emit Repay(msg.sender, asset, amount);
     }
 
     function getHealthFactor(address) external pure override returns (uint256) {
