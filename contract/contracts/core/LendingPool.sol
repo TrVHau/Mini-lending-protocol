@@ -6,8 +6,19 @@ import "../interfaces/ILendingPool.sol";
 import "../interfaces/IPriceOracle.sol";
 import "../interfaces/IAToken.sol";
 import "../interfaces/IVariableDebtToken.sol";
+import "../libraries/MathUtils.sol";
+
+import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 
 contract LendingPool is ILendingPool, Ownable {
+    using MathUtils for uint256;
+
+    // event 
+    event Deposit(address indexed user, address indexed asset, uint256 amount);
+    event Withdraw(address indexed user, address indexed asset, uint256 amount);
+    event Borrow(address indexed user, address indexed asset, uint256 amount);
+    event Repay(address indexed user, address indexed asset, uint256 amount);
+
     uint256 internal constant WAD = 1e18;
     uint256 internal constant RAY = 1e27;
 
@@ -99,12 +110,12 @@ contract LendingPool is ILendingPool, Ownable {
         if (dt == 0) return;
 
         if (r.liquidityRateRayPerSecond != 0) {
-            uint256 liquidityDelta = (r.liquidityIndexRay * r.liquidityRateRayPerSecond * dt) / RAY;
+            uint256 liquidityDelta = r.liquidityIndexRay.mulRayDown(r.liquidityRateRayPerSecond*dt);
             r.liquidityIndexRay = r.liquidityIndexRay + liquidityDelta;
         }
 
         if (r.borrowRateRayPerSecond != 0) {
-            uint256 borrowDelta = (r.borrowIndexRay * r.borrowRateRayPerSecond * dt) / RAY;
+            uint256 borrowDelta = r.borrowIndexRay.mulRayDown(r.borrowRateRayPerSecond*dt);
             r.borrowIndexRay = r.borrowIndexRay + borrowDelta;
         }
     }
@@ -131,7 +142,7 @@ contract LendingPool is ILendingPool, Ownable {
         } else {
             priceWad = price / (10 ** (priceDecimals - 18));
         }
-        return (amountWad * priceWad) / WAD;
+        return amountWad.mulWadDown(priceWad);
     }
 
     function getReserveIndexes(address asset)
@@ -152,12 +163,36 @@ contract LendingPool is ILendingPool, Ownable {
     // ILendingPool placeholders (implemented in Phase 2+)
     // -----------------------------------------------------------------------
 
-    function deposit(address, uint256) external pure override {
-        revert("NOT_IMPLEMENTED_PHASE2");
+    function deposit(address asset, uint256 amount) external override {
+        require(amount > 0, "INVALID_AMOUNT");
+        ReserveData storage r = reserves[asset];
+        require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
+        require(r.isActive, "RESERVE_INACTIVE");
+        require(!r.isFrozen, "RESERVE_FROZEN");
+
+            _updateReserve(asset);
+        bool ok = IERC20(asset).transferFrom(msg.sender, address(r.aToken), amount);
+        require(ok, "TRANSFER_FAILED");
+        uint256 scaledAmount = r.aToken.mint(msg.sender, amount, r.liquidityIndexRay);
+        require(scaledAmount > 0, "MINT_FAILED");
+
+        emit Deposit(msg.sender, asset, amount);
     }
 
-    function withdraw(address, uint256) external pure override {
-        revert("NOT_IMPLEMENTED_PHASE2");
+    function withdraw(address asset, uint256 amount) external  override {
+        require(amount>0, "INVALID_AMOUNT");
+        ReserveData storage r = reserves[asset];
+        require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
+        require(r.isActive, "RESERVE_INACTIVE");
+        require(!r.isFrozen, "RESERVE_FROZEN");
+
+        _updateReserve(asset);
+        uint256 scaledAmount = r.aToken.burn(msg.sender, amount, r.liquidityIndexRay);
+        require(scaledAmount > 0, "BURN_FAILED");
+        bool ok = IERC20(asset).transferFrom(address(r.aToken), msg.sender, amount);
+        require(ok, "TRANSFER_FAILED");
+
+        emit Withdraw(msg.sender, asset, amount);
     }
 
     function borrow(address, uint256) external pure override {
