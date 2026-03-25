@@ -11,7 +11,7 @@ describe("LendingPool - deposit/withdraw/borrow/repay", function () {
   let aToken: any;
   let debtToken: any;
 
-  const DECIMALS = 18;
+  const DECIMALS = 8;
   const ONE = ethers.parseUnits("1", DECIMALS);
 
   // Deploy contracts and set up initial state before each test
@@ -23,19 +23,19 @@ describe("LendingPool - deposit/withdraw/borrow/repay", function () {
     asset = await MockERC20.deploy("Mock DAI", "DAI", DECIMALS);
 
     const MockPriceOracle = await ethers.getContractFactory("MockPriceOracle");
-    oracle = await MockPriceOracle.deploy(owner.address); // 1 DAI = 1 USD
+    oracle = await MockPriceOracle.deploy(await owner.getAddress()); // 1 DAI = 1 USD
     console.log("Hello");
     const LendingPool = await ethers.getContractFactory("LendingPool");
-    pool = await LendingPool.deploy(asset.address, oracle.address);
+    pool = await LendingPool.deploy(
+      await oracle.getAddress(),
+      await owner.getAddress(),
+    );
     console.log("Hello");
-    const ATOKEN = await ethers.getContractFactory("AToken");
-    aToken = await ATOKEN.deploy(pool.address, "A DAI", "aDAI", DECIMALS);
 
-    const AToken = await ethers.getContractFactory("AToken");
-    aToken = await AToken.deploy(
+    const ATokenFactory = await ethers.getContractFactory("AToken");
+    aToken = await ATokenFactory.deploy(
       await pool.getAddress(),
-      await asset.name(),
-      await asset.symbol(),
+      await asset.getAddress(),
       DECIMALS,
     );
 
@@ -43,15 +43,14 @@ describe("LendingPool - deposit/withdraw/borrow/repay", function () {
       await ethers.getContractFactory("VariableDebtToken");
     debtToken = await VariableDebtToken.deploy(
       await pool.getAddress(),
-      await asset.name(),
-      `variableDebt${await asset.symbol()}`,
+      await asset.getAddress(),
       DECIMALS,
     );
 
-    await pool.initReverse(
-      asset.address,
-      aToken.address,
-      debtToken.address,
+    await pool.initReserve(
+      await asset.getAddress(),
+      await aToken.getAddress(),
+      await debtToken.getAddress(),
       DECIMALS,
       8000,
       8500,
@@ -59,17 +58,17 @@ describe("LendingPool - deposit/withdraw/borrow/repay", function () {
       1000,
     );
 
-    await oracle.setPrice(await asset.address, ONE);
+    await oracle.setPrice(await asset.getAddress(), ONE);
 
-    await asset.mint(bob.address, ethers.parseUnits("1000", DECIMALS));
-    await asset.mint(alice.address, ethers.parseUnits("1000", DECIMALS));
+    await asset.mint(bob.getAddress(), ethers.parseUnits("1000", DECIMALS));
+    await asset.mint(alice.getAddress(), ethers.parseUnits("1000", DECIMALS));
   });
 
   it("deposit successful", async function () {
     const amount = ethers.parseUnits("100", DECIMALS);
 
-    await asset.connect(alice).approve(pool.address, amount);
-    await expect(pool.connect(alice).deposit(alice.address, amount)).to.not.be
-      .reverted;
+    await asset.connect(alice).approve(await pool.getAddress(), amount);
+    await expect(pool.connect(alice).deposit(await asset.getAddress(), amount))
+      .to.not.be.reverted;
   });
 });
