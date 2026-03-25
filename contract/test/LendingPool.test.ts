@@ -116,4 +116,61 @@ describe("LendingPool - deposit/withdraw/borrow/repay", function () {
       .to.emit(pool, "Deposit")
       .withArgs(await alice.getAddress(), await asset.getAddress(), amount);
   });
+
+  // withdraw tests
+
+  it("withdraw zero amount should revert", async function () {
+    const amount = ethers.parseUnits("0", DECIMALS);
+
+    await expect(
+      pool.connect(alice).withdraw(await asset.getAddress(), amount),
+    ).to.be.revertedWith("INVALID_AMOUNT");
+  });
+
+  it("withdraw revert when over aToken balance", async function () {
+    const depositAmount = ethers.parseUnits("100", DECIMALS);
+    const withdrawAmount = ethers.parseUnits("150", DECIMALS);
+
+    await asset.connect(alice).approve(await pool.getAddress(), depositAmount);
+    await pool.connect(alice).deposit(await asset.getAddress(), depositAmount);
+
+    await expect(
+      pool.connect(alice).withdraw(await asset.getAddress(), withdrawAmount),
+    ).to.be.revertedWith("BURN_EXCEEDS_BALANCE");
+  });
+
+  it("withdraw successfully, token underlying should transfer to user", async function () {
+    const depositAmount = ethers.parseUnits("100", DECIMALS);
+    const withdrawAmount = ethers.parseUnits("50", DECIMALS);
+
+    await asset.connect(alice).approve(await pool.getAddress(), depositAmount);
+    await pool.connect(alice).deposit(await asset.getAddress(), depositAmount);
+
+    const aliceInitialBalance = await asset.balanceOf(await alice.getAddress());
+
+    await pool
+      .connect(alice)
+      .withdraw(await asset.getAddress(), withdrawAmount);
+
+    const aliceFinalBalance = await asset.balanceOf(await alice.getAddress());
+    expect(aliceFinalBalance - aliceInitialBalance).to.equal(withdrawAmount);
+  });
+
+  it("withdraw successfully then event should be emitted", async function () {
+    const depositAmount = ethers.parseUnits("100", DECIMALS);
+    const withdrawAmount = ethers.parseUnits("50", DECIMALS);
+
+    await asset.connect(alice).approve(await pool.getAddress(), depositAmount);
+    await pool.connect(alice).deposit(await asset.getAddress(), depositAmount);
+
+    await expect(
+      pool.connect(alice).withdraw(await asset.getAddress(), withdrawAmount),
+    )
+      .to.emit(pool, "Withdraw")
+      .withArgs(
+        await alice.getAddress(),
+        await asset.getAddress(),
+        withdrawAmount,
+      );
+  });
 });
