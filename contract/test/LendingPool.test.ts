@@ -24,13 +24,11 @@ describe("LendingPool - deposit/withdraw/borrow/repay", function () {
 
     const MockPriceOracle = await ethers.getContractFactory("MockPriceOracle");
     oracle = await MockPriceOracle.deploy(await owner.getAddress()); // 1 DAI = 1 USD
-    console.log("Hello");
     const LendingPool = await ethers.getContractFactory("LendingPool");
     pool = await LendingPool.deploy(
       await oracle.getAddress(),
       await owner.getAddress(),
     );
-    console.log("Hello");
 
     const ATokenFactory = await ethers.getContractFactory("AToken");
     aToken = await ATokenFactory.deploy(
@@ -64,11 +62,58 @@ describe("LendingPool - deposit/withdraw/borrow/repay", function () {
     await asset.mint(alice.getAddress(), ethers.parseUnits("1000", DECIMALS));
   });
 
-  it("deposit successful", async function () {
+  // deposit tests
+
+  it("deposit zero amount should revert", async function () {
+    const amount = ethers.parseUnits("0", DECIMALS);
+
+    await asset.connect(alice).approve(await pool.getAddress(), amount);
+    await expect(
+      pool.connect(alice).deposit(await asset.getAddress(), amount),
+    ).to.be.revertedWith("INVALID_AMOUNT");
+  });
+
+  it("deposit without reserve initialized not found", async function () {
+    const amount = ethers.parseUnits("100", DECIMALS);
+
+    const uninitializedAsset = await ethers.getContractFactory("MockERC20");
+    const uninitializedAssetInstance = await uninitializedAsset.deploy(
+      "Uninitialized Asset",
+      "UA",
+      DECIMALS,
+    );
+    await asset.connect(alice).approve(await pool.getAddress(), amount);
+    await expect(
+      pool
+        .connect(alice)
+        .deposit(await uninitializedAssetInstance.getAddress(), amount),
+    ).to.be.revertedWith("RESERVE_NOT_FOUND");
+  });
+
+  it("deposit without approval should revert", async function () {
+    const amount = ethers.parseUnits("100", DECIMALS);
+
+    await expect(pool.connect(alice).deposit(await asset.getAddress(), amount))
+      .to.be.reverted;
+  });
+
+  it("deposit sucessfully then aToken balance should increase", async function () {
+    const amount = ethers.parseUnits("100", DECIMALS);
+
+    await asset.connect(alice).approve(await pool.getAddress(), amount);
+    await pool.connect(alice).deposit(await asset.getAddress(), amount);
+
+    expect(await aToken.scaledBalanceOf(await alice.getAddress())).to.equal(
+      amount,
+    );
+  });
+
+  it("deposit successfully then event should be emitted", async function () {
     const amount = ethers.parseUnits("100", DECIMALS);
 
     await asset.connect(alice).approve(await pool.getAddress(), amount);
     await expect(pool.connect(alice).deposit(await asset.getAddress(), amount))
-      .to.not.be.reverted;
+      .to.emit(pool, "Deposit")
+      .withArgs(await alice.getAddress(), await asset.getAddress(), amount);
   });
 });
