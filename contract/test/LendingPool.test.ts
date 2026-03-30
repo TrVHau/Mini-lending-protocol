@@ -173,4 +173,24 @@ describe("LendingPool - deposit/withdraw/borrow/repay", function () {
         withdrawAmount,
       );
   });
+
+  it("borrow revert when amount = 0", async function () {
+    const amount = ethers.parseUnits("0", DECIMALS);
+
+    await expect(
+      pool.connect(alice).borrow(await asset.getAddress(), amount),
+    ).to.be.revertedWith("INVALID_AMOUNT");
+  });
+
+  it("borrow doesn't have collateral should revert", async function () {
+    const amount = ethers.parseUnits("100", DECIMALS);
+
+    // Provide reserve liquidity so the borrow path reaches collateral checks.
+    await asset.connect(bob).approve(await pool.getAddress(), amount);
+    await pool.connect(bob).deposit(await asset.getAddress(), amount);
+
+    await expect(
+      pool.connect(alice).borrow(await asset.getAddress(), amount),
+    ).to.be.revertedWith("INSUFFICIENT_COLLATERAL");
+  });
 });
