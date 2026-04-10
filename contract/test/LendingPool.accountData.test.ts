@@ -55,63 +55,94 @@ describe("LendingPool - accountData", function () {
     );
 
     await oracle.setPrice(await asset.getAddress(), ONE);
-    await asset.mint(bob.getAddress(), ethers.parseUnits("1000", DECIMALS));
-    await asset.mint(alice.getAddress(), ethers.parseUnits("1000", DECIMALS));
+    await asset.mint(await bob.getAddress(), ethers.parseUnits("1000", DECIMALS));
+    await asset.mint(
+      await alice.getAddress(),
+      ethers.parseUnits("1000", DECIMALS),
+    );
   });
 
-  // helper
   async function setupLiquidity(amount: string) {
-    // bob deposits 100 DAI
-    await asset
-      .connect(bob)
-      .approve(pool.getAddress(), ethers.parseUnits(amount, DECIMALS));
-    await pool
-      .connect(bob)
-      .deposit(
-        await asset.getAddress(),
-        ethers.parseUnits(amount, DECIMALS),
-        0,
-      );
+    const amt = ethers.parseUnits(amount, DECIMALS);
+    await asset.connect(bob).approve(await pool.getAddress(), amt);
+    await pool.connect(bob).deposit(await asset.getAddress(), amt);
   }
 
   async function setupAlicePosition(collateral: string, borrow: string) {
-    // alice deposits collateral and borrows
-    await asset
-      .connect(alice)
-      .approve(pool.getAddress(), ethers.parseUnits(collateral, DECIMALS));
-    await pool
-      .connect(alice)
-      .deposit(
-        await asset.getAddress(),
-        ethers.parseUnits(collateral, DECIMALS),
-        0,
-      );
-    await pool
-      .connect(alice)
-      .borrow(
-        await asset.getAddress(),
-        ethers.parseUnits(borrow, DECIMALS),
-        0,
-        0,
-      );
+    const collateralAmt = ethers.parseUnits(collateral, DECIMALS);
+    const borrowAmt = ethers.parseUnits(borrow, DECIMALS);
+
+    await asset.connect(alice).approve(await pool.getAddress(), collateralAmt);
+    await pool.connect(alice).deposit(await asset.getAddress(), collateralAmt);
+    if (borrowAmt > 0n) {
+      await pool.connect(alice).borrow(await asset.getAddress(), borrowAmt);
+    }
   }
 
-  // test
-  it("User dont have position", async function () {
-    const data = await pool.getUserAccountData(alice.getAddress());
-    expect(data.collateralUsdWad).to.equal(0);
-    expect(data.debtUsdWad).to.equal(0);
-    expect(data.maxBorrowUsdWad).to.equal(0);
+  it("user without position should return zero balances and max health factor", async function () {
+    const data = await pool.getUserAccountData(await alice.getAddress());
+
+    expect(data.collateralUsdWad).to.equal(0n);
+    expect(data.debtUsdWad).to.equal(0n);
+    expect(data.maxBorrowUsdWad).to.equal(0n);
     expect(data.healthFactorWad).to.equal(ethers.MaxUint256);
   });
 
-  it("Only deposit,no debt", async function () {});
+  it("only deposit should have debt = 0 and correct max borrow", async function () {
+    await setupAlicePosition("100", "0");
 
-  it("Deposit and borrow", async function () {});
+    const data = await pool.getUserAccountData(await alice.getAddress());
+    expect(data.collateralUsdWad).to.equal(ethers.parseUnits("100", 18));
+    expect(data.debtUsdWad).to.equal(0n);
+    expect(data.maxBorrowUsdWad).to.equal(ethers.parseUnits("80", 18));
+    expect(data.healthFactorWad).to.equal(ethers.MaxUint256);
+  });
 
-  it("Health factor", async function () {});
+  it("deposit and borrow should return positive debt and hf > 1", async function () {
+    await setupLiquidity("500");
+    await setupAlicePosition("100", "50");
 
-  it("Price decrease so HF decrease", async function () {});
+    const data = await pool.getUserAccountData(await alice.getAddress());
+    expect(data.collateralUsdWad).to.equal(ethers.parseUnits("100", 18));
+    expect(data.debtUsdWad).to.equal(ethers.parseUnits("50", 18));
+    expect(data.maxBorrowUsdWad).to.equal(ethers.parseUnits("80", 18));
+    expect(data.healthFactorWad).to.equal(ethers.parseUnits("1.7", 18));
+  });
 
-  it("Price increase so HF increase", async function () {});
+  it("getHealthFactor should equal getUserAccountData healthFactorWad", async function () {
+    await setupLiquidity("500");
+    await setupAlicePosition("100", "40");
+
+    const data = await pool.getUserAccountData(await alice.getAddress());
+    const hf = await pool.getHealthFactor(await alice.getAddress());
+    expect(hf).to.equal(data.healthFactorWad);
+  });
+
+  it("price decrease should keep health factor unchanged in single-asset position", async function () {
+    await setupLiquidity("500");
+    await setupAlicePosition("100", "40");
+
+    const beforeData = await pool.getUserAccountData(await alice.getAddress());
+    await oracle.setPrice(await asset.getAddress(), ethers.parseUnits("0.8", DECIMALS));
+    const afterData = await pool.getUserAccountData(await alice.getAddress());
+
+    expect(afterData.collateralUsdWad).to.be.lt(beforeData.collateralUsdWad);
+    expect(afterData.debtUsdWad).to.be.lt(beforeData.debtUsdWad);
+    expect(afterData.maxBorrowUsdWad).to.be.lt(beforeData.maxBorrowUsdWad);
+    expect(afterData.healthFactorWad).to.equal(beforeData.healthFactorWad);
+  });
+
+  it("price increase should keep health factor unchanged in single-asset position", async function () {
+    await setupLiquidity("500");
+    await setupAlicePosition("100", "40");
+
+    const beforeData = await pool.getUserAccountData(await alice.getAddress());
+    await oracle.setPrice(await asset.getAddress(), ethers.parseUnits("1.2", DECIMALS));
+    const afterData = await pool.getUserAccountData(await alice.getAddress());
+
+    expect(afterData.collateralUsdWad).to.be.gt(beforeData.collateralUsdWad);
+    expect(afterData.debtUsdWad).to.be.gt(beforeData.debtUsdWad);
+    expect(afterData.maxBorrowUsdWad).to.be.gt(beforeData.maxBorrowUsdWad);
+    expect(afterData.healthFactorWad).to.equal(beforeData.healthFactorWad);
+  });
 });
