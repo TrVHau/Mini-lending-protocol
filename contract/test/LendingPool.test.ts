@@ -133,7 +133,7 @@ describe("LendingPool", function () {
       ).to.be.reverted;
     });
 
-    it("deposit sucessfully then aToken balance should increase", async function () {
+    it("deposit successfully then aToken balance should increase", async function () {
       const amount = ethers.parseUnits("100", DECIMALS);
 
       await asset.connect(alice).approve(await pool.getAddress(), amount);

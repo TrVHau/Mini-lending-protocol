@@ -15,7 +15,7 @@ contract LendingPool is ILendingPool, Ownable {
     using MathUtils for uint256;
     using SafeERC20 for IERC20;
 
-    // event 
+    // events
     event Deposit(address indexed user, address indexed asset, uint256 amount);
     event Withdraw(address indexed user, address indexed asset, uint256 amount);
     event Borrow(address indexed user, address indexed asset, uint256 amount);
@@ -163,7 +163,7 @@ contract LendingPool is ILendingPool, Ownable {
         return (address(r.aToken), address(r.variableDebtToken));
     }
 
-    // user 
+    // user actions
 
     function deposit(address asset, uint256 amount) external override {
         require(amount > 0, "INVALID_AMOUNT");
@@ -180,8 +180,8 @@ contract LendingPool is ILendingPool, Ownable {
         emit Deposit(msg.sender, asset, amount);
     }
 
-    function withdraw(address asset, uint256 amount) external  override {
-        require(amount>0, "INVALID_AMOUNT");
+    function withdraw(address asset, uint256 amount) external override {
+        require(amount > 0, "INVALID_AMOUNT");
         ReserveData storage r = reserves[asset];
         require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
         require(r.isActive, "RESERVE_INACTIVE");
@@ -195,7 +195,7 @@ contract LendingPool is ILendingPool, Ownable {
     }
 
     function borrow(address asset, uint256 amount) external override {
-        require(amount>0,"INVALID_AMOUNT");
+        require(amount > 0, "INVALID_AMOUNT");
         ReserveData storage r = reserves[asset];
         require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
         require(r.isActive, "RESERVE_INACTIVE");
@@ -222,7 +222,7 @@ contract LendingPool is ILendingPool, Ownable {
     }
 
     function repay(address asset, uint256 amount) external override {
-        require(amount>0,"INVALID_AMOUNT");
+        require(amount > 0, "INVALID_AMOUNT");
         ReserveData storage r = reserves[asset];
         require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
         require(r.isActive, "RESERVE_INACTIVE");
@@ -230,8 +230,8 @@ contract LendingPool is ILendingPool, Ownable {
         _updateReserve(asset);
 
         uint256 debt = r.variableDebtToken.balanceOfWithIndex(msg.sender, r.borrowIndexRay);
-        uint256 payback = amount>debt ? debt:amount;
-        require(payback>0,"NO_DEBT");
+        uint256 payback = amount > debt ? debt : amount;
+        require(payback > 0, "NO_DEBT");
 
         uint256 burnedScaledAmount = r.variableDebtToken.burn(msg.sender, payback, r.borrowIndexRay);
         require(burnedScaledAmount > 0, "BURN_FAILED");
@@ -262,8 +262,14 @@ contract LendingPool is ILendingPool, Ownable {
             uint256 collateralAmount = r.aToken.balanceOfWithIndex(user, r.liquidityIndexRay);
             uint256 debtAmount = r.variableDebtToken.balanceOfWithIndex(user, r.borrowIndexRay);
 
-            uint256 collateralUsd = _assetToUsdWad(asset, collateralAmount);
-            uint256 debtUsd = _assetToUsdWad(asset, debtAmount);
+            // Skip reserves where the user has no position so missing oracle price
+            // on unrelated reserves does not break account-data reads.
+            if (collateralAmount == 0 && debtAmount == 0) {
+                continue;
+            }
+
+            uint256 collateralUsd = collateralAmount > 0 ? _assetToUsdWad(asset, collateralAmount) : 0;
+            uint256 debtUsd = debtAmount > 0 ? _assetToUsdWad(asset, debtAmount) : 0;
 
             collateralUsdWad += collateralUsd;
             debtUsdWad += debtUsd;

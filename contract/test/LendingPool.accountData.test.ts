@@ -79,9 +79,49 @@ describe("LendingPool - accountData", function () {
     }
   }
 
+  async function initUnpricedReserve() {
+    const MockERC20 = await ethers.getContractFactory("MockERC20");
+    const otherAsset = await MockERC20.deploy("Mock USDC", "USDC", DECIMALS);
+
+    const AToken = await ethers.getContractFactory("AToken");
+    const otherAToken = await AToken.deploy(
+      await pool.getAddress(),
+      await otherAsset.getAddress(),
+      DECIMALS,
+    );
+
+    const DebtToken = await ethers.getContractFactory("VariableDebtToken");
+    const otherDebtToken = await DebtToken.deploy(
+      await pool.getAddress(),
+      await otherAsset.getAddress(),
+      DECIMALS,
+    );
+
+    await pool.initReserve(
+      await otherAsset.getAddress(),
+      await otherAToken.getAddress(),
+      await otherDebtToken.getAddress(),
+      DECIMALS,
+      8000,
+      8500,
+      10500,
+      1000,
+    );
+  }
+
   it("user without position should return zero balances and max health factor", async function () {
     const data = await pool.getUserAccountData(await alice.getAddress());
 
+    expect(data.collateralUsdWad).to.equal(0n);
+    expect(data.debtUsdWad).to.equal(0n);
+    expect(data.maxBorrowUsdWad).to.equal(0n);
+    expect(data.healthFactorWad).to.equal(ethers.MaxUint256);
+  });
+
+  it("account data should not revert if an unrelated reserve has no oracle price", async function () {
+    await initUnpricedReserve();
+
+    const data = await pool.getUserAccountData(await alice.getAddress());
     expect(data.collateralUsdWad).to.equal(0n);
     expect(data.debtUsdWad).to.equal(0n);
     expect(data.maxBorrowUsdWad).to.equal(0n);
