@@ -40,7 +40,7 @@ contract LendingPool is ILendingPool, Ownable {
         uint16 liquidationBonusBps;
         uint16 reserveFactorBps;
     }
-
+    address[] private reserveList;
     mapping(address => ReserveData) private reserves;
     IPriceOracle public immutable priceOracle;
 
@@ -88,6 +88,8 @@ contract LendingPool is ILendingPool, Ownable {
         r.liquidationThresholdBps = liquidationThresholdBps;
         r.liquidationBonusBps = liquidationBonusBps;
         r.reserveFactorBps = reserveFactorBps;
+
+        reserveList.push(asset);
 
         emit ReserveInitialized(asset, aToken, debtToken);
     }
@@ -239,16 +241,60 @@ contract LendingPool is ILendingPool, Ownable {
         emit Repay(msg.sender, asset, payback);
     }
 
-    function getHealthFactor(address) external pure override returns (uint256) {
-        return 0;
+    function _computeUserAccountData(address user)
+        internal
+        view
+        returns (
+            uint256 collateralUsdWad,
+            uint256 debtUsdWad,
+            uint256 maxBorrowUsdWad,
+            uint256 liquidationThresholdUsdWad
+        )
+    {
+        for (uint256 i = 0; i < reserveList.length; i++) {
+            address asset = reserveList[i];
+            ReserveData storage r = reserves[asset];
+
+            if (address(r.aToken) == address(0)) {
+                continue;
+            }
+
+            uint256 collateralAmount = r.aToken.balanceOfWithIndex(user, r.liquidityIndexRay);
+            uint256 debtAmount = r.variableDebtToken.balanceOfWithIndex(user, r.borrowIndexRay);
+
+            uint256 collateralUsd = _assetToUsdWad(asset, collateralAmount);
+            uint256 debtUsd = _assetToUsdWad(asset, debtAmount);
+
+            collateralUsdWad += collateralUsd;
+            debtUsdWad += debtUsd;
+            maxBorrowUsdWad += collateralUsd.mulBpsDown(r.ltvBps);
+            liquidationThresholdUsdWad += collateralUsd.mulBpsDown(r.liquidationThresholdBps);
+        }
     }
 
-    function getUserAccountData(address)
+    function getHealthFactor(address user) external view override returns (uint256) {
+        (, uint256 debtUsdWad, , uint256 liquidationThresholdUsdWad) = _computeUserAccountData(user);
+
+        if (debtUsdWad == 0) {
+            return type(uint256).max;
+        }
+
+        return liquidationThresholdUsdWad.divWadDown(debtUsdWad);
+    }
+
+    function getUserAccountData(address user)
         external
-        pure
+        view
         override
         returns (uint256 collateralUsdWad, uint256 debtUsdWad, uint256 maxBorrowUsdWad, uint256 healthFactorWad)
     {
-        return (0, 0, 0, 0);
+        uint256 liquidationThresholdUsdWad;
+        (collateralUsdWad, debtUsdWad, maxBorrowUsdWad, liquidationThresholdUsdWad) = _computeUserAccountData(user);
+
+        if (debtUsdWad == 0) {
+            healthFactorWad = type(uint256).max;
+        } else {
+            healthFactorWad = liquidationThresholdUsdWad.divWadDown(debtUsdWad);
+        }
     }
 }
