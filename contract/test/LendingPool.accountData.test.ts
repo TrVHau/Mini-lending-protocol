@@ -62,18 +62,56 @@ describe("LendingPool - accountData", function () {
   // helper
   async function setupLiquidity(amount: string) {
     // bob deposits 100 DAI
-    await asset.connect(bob).approve(pool.getAddress(), ethers.parseUnits(amount, DECIMALS));
-    await pool.connect(bob).deposit(await asset.getAddress(), ethers.parseUnits(amount, DECIMALS), 0);
+    await asset
+      .connect(bob)
+      .approve(pool.getAddress(), ethers.parseUnits(amount, DECIMALS));
+    await pool
+      .connect(bob)
+      .deposit(
+        await asset.getAddress(),
+        ethers.parseUnits(amount, DECIMALS),
+        0,
+      );
   }
 
   async function setupAlicePosition(collateral: string, borrow: string) {
     // alice deposits collateral and borrows
-    await asset.connect(alice).approve(pool.getAddress(), ethers.parseUnits(collateral, DECIMALS));
-    await pool.connect(alice).deposit(await asset.getAddress(), ethers.parseUnits(collateral, DECIMALS), 0);
-    await pool.connect(alice).borrow(await asset.getAddress(), ethers.parseUnits(borrow, DECIMALS), 0, 0);
+    await asset
+      .connect(alice)
+      .approve(pool.getAddress(), ethers.parseUnits(collateral, DECIMALS));
+    await pool
+      .connect(alice)
+      .deposit(
+        await asset.getAddress(),
+        ethers.parseUnits(collateral, DECIMALS),
+        0,
+      );
+    await pool
+      .connect(alice)
+      .borrow(
+        await asset.getAddress(),
+        ethers.parseUnits(borrow, DECIMALS),
+        0,
+        0,
+      );
   }
 
   // test
+  it("User dont have position", async function () {
+    const data = await pool.getUserAccountData(alice.getAddress());
+    expect(data.collateralUsdWad).to.equal(0);
+    expect(data.debtUsdWad).to.equal(0);
+    expect(data.maxBorrowUsdWad).to.equal(0);
+    expect(data.healthFactorWad).to.equal(ethers.MaxUint256);
+  });
 
-  
+  it("Only deposit,no debt", async function () {});
+
+  it("Deposit and borrow", async function () {});
+
+  it("Health factor", async function () {});
+
+  it("Price decrease so HF decrease", async function () {});
+
+  it("Price increase so HF increase", async function () {});
 });
