@@ -16,4 +16,7 @@ interface ILendingPool {
             uint256 maxBorrowUsdWad,
             uint256 healthFactorWad
     );
+
+    // liquidation function
+    function liquidate(address collateralAsset, address debtAsset, address user, uint256 debtToCover) external;
 }

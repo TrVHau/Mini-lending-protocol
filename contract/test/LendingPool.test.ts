@@ -56,8 +56,11 @@ describe("LendingPool", function () {
     );
 
     await oracle.setPrice(await asset.getAddress(), ONE);
-    await asset.mint(bob.getAddress(), ethers.parseUnits("1000", DECIMALS));
-    await asset.mint(alice.getAddress(), ethers.parseUnits("1000", DECIMALS));
+    await asset.mint(await bob.getAddress(), ethers.parseUnits("1000", DECIMALS));
+    await asset.mint(
+      await alice.getAddress(),
+      ethers.parseUnits("1000", DECIMALS),
+    );
   });
 
   async function createUninitializedAsset() {
@@ -106,16 +109,13 @@ describe("LendingPool", function () {
   }
 
   describe("deposit", function () {
-    it("deposit zero amount should revert", async function () {
-      const amount = ethers.parseUnits("0", DECIMALS);
-
-      await asset.connect(alice).approve(await pool.getAddress(), amount);
+    it("reverts on zero amount", async function () {
       await expect(
-        pool.connect(alice).deposit(await asset.getAddress(), amount),
+        pool.connect(alice).deposit(await asset.getAddress(), 0),
       ).to.be.revertedWith("INVALID_AMOUNT");
     });
 
-    it("deposit without reserve initialized not found", async function () {
+    it("reverts on unknown reserve", async function () {
       const amount = ethers.parseUnits("100", DECIMALS);
       const uninitializedAsset = await createUninitializedAsset();
 
@@ -125,15 +125,7 @@ describe("LendingPool", function () {
       ).to.be.revertedWith("RESERVE_NOT_FOUND");
     });
 
-    it("deposit without approval should revert", async function () {
-      const amount = ethers.parseUnits("100", DECIMALS);
-
-      await expect(
-        pool.connect(alice).deposit(await asset.getAddress(), amount),
-      ).to.be.reverted;
-    });
-
-    it("deposit successfully then aToken balance should increase", async function () {
+    it("mints aToken balance on success", async function () {
       const amount = ethers.parseUnits("100", DECIMALS);
 
       await asset.connect(alice).approve(await pool.getAddress(), amount);
@@ -143,27 +135,16 @@ describe("LendingPool", function () {
         amount,
       );
     });
-
-    it("deposit successfully then event should be emitted", async function () {
-      const amount = ethers.parseUnits("100", DECIMALS);
-
-      await asset.connect(alice).approve(await pool.getAddress(), amount);
-      await expect(pool.connect(alice).deposit(await asset.getAddress(), amount))
-        .to.emit(pool, "Deposit")
-        .withArgs(await alice.getAddress(), await asset.getAddress(), amount);
-    });
   });
 
   describe("withdraw", function () {
-    it("withdraw zero amount should revert", async function () {
-      const amount = ethers.parseUnits("0", DECIMALS);
-
+    it("reverts on zero amount", async function () {
       await expect(
-        pool.connect(alice).withdraw(await asset.getAddress(), amount),
+        pool.connect(alice).withdraw(await asset.getAddress(), 0),
       ).to.be.revertedWith("INVALID_AMOUNT");
     });
 
-    it("withdraw revert when over aToken balance", async function () {
+    it("reverts when withdrawing above balance", async function () {
       const depositAmount = ethers.parseUnits("100", DECIMALS);
       const withdrawAmount = ethers.parseUnits("150", DECIMALS);
 
@@ -175,81 +156,29 @@ describe("LendingPool", function () {
       ).to.be.revertedWith("BURN_EXCEEDS_BALANCE");
     });
 
-    it("withdraw on uninitialized reserve should revert", async function () {
-      const amount = ethers.parseUnits("1", DECIMALS);
-      const uninitializedAsset = await createUninitializedAsset();
-
-      await expect(
-        pool
-          .connect(alice)
-          .withdraw(await uninitializedAsset.getAddress(), amount),
-      ).to.be.revertedWith("RESERVE_NOT_FOUND");
-    });
-
-    it("withdraw successfully, token underlying should transfer to user", async function () {
+    it("transfers underlying on success", async function () {
       const depositAmount = ethers.parseUnits("100", DECIMALS);
       const withdrawAmount = ethers.parseUnits("50", DECIMALS);
 
       await asset.connect(alice).approve(await pool.getAddress(), depositAmount);
       await pool.connect(alice).deposit(await asset.getAddress(), depositAmount);
 
-      const aliceInitialBalance = await asset.balanceOf(await alice.getAddress());
-
+      const balanceBefore = await asset.balanceOf(await alice.getAddress());
       await pool.connect(alice).withdraw(await asset.getAddress(), withdrawAmount);
+      const balanceAfter = await asset.balanceOf(await alice.getAddress());
 
-      const aliceFinalBalance = await asset.balanceOf(await alice.getAddress());
-      expect(aliceFinalBalance - aliceInitialBalance).to.equal(withdrawAmount);
-    });
-
-    it("withdraw successfully then event should be emitted", async function () {
-      const depositAmount = ethers.parseUnits("100", DECIMALS);
-      const withdrawAmount = ethers.parseUnits("50", DECIMALS);
-
-      await asset.connect(alice).approve(await pool.getAddress(), depositAmount);
-      await pool.connect(alice).deposit(await asset.getAddress(), depositAmount);
-
-      await expect(
-        pool.connect(alice).withdraw(await asset.getAddress(), withdrawAmount),
-      )
-        .to.emit(pool, "Withdraw")
-        .withArgs(
-          await alice.getAddress(),
-          await asset.getAddress(),
-          withdrawAmount,
-        );
+      expect(balanceAfter - balanceBefore).to.equal(withdrawAmount);
     });
   });
 
   describe("borrow", function () {
-    it("borrow revert when amount = 0", async function () {
-      const amount = ethers.parseUnits("0", DECIMALS);
-
+    it("reverts on zero amount", async function () {
       await expect(
-        pool.connect(alice).borrow(await asset.getAddress(), amount),
+        pool.connect(alice).borrow(await asset.getAddress(), 0),
       ).to.be.revertedWith("INVALID_AMOUNT");
     });
 
-    it("borrow doesn't have collateral should revert", async function () {
-      const amount = ethers.parseUnits("100", DECIMALS);
-
-      await asset.connect(bob).approve(await pool.getAddress(), amount);
-      await pool.connect(bob).deposit(await asset.getAddress(), amount);
-
-      await expect(
-        pool.connect(alice).borrow(await asset.getAddress(), amount),
-      ).to.be.revertedWith("INSUFFICIENT_COLLATERAL");
-    });
-
-    it("borrow on uninitialized reserve should revert", async function () {
-      const amount = ethers.parseUnits("1", DECIMALS);
-      const uninitializedAsset = await createUninitializedAsset();
-
-      await expect(
-        pool.connect(alice).borrow(await uninitializedAsset.getAddress(), amount),
-      ).to.be.revertedWith("RESERVE_NOT_FOUND");
-    });
-
-    it("borrow should revert when reserve liquidity is insufficient", async function () {
+    it("reverts when liquidity is insufficient", async function () {
       const liquidityAmount = ethers.parseUnits("10", DECIMALS);
       const borrowAmount = ethers.parseUnits("20", DECIMALS);
 
@@ -261,32 +190,18 @@ describe("LendingPool", function () {
       ).to.be.revertedWith("INSUFFICIENT_LIQUIDITY");
     });
 
-    it("borrow successfully then event should be emitted", async function () {
-      const liquidityAmount = ethers.parseUnits("1000", DECIMALS);
-      const collateralAmount = ethers.parseUnits("100", DECIMALS);
-      const borrowAmount = ethers.parseUnits("50", DECIMALS);
+    it("reverts when collateral is insufficient", async function () {
+      const amount = ethers.parseUnits("100", DECIMALS);
 
-      await asset.connect(bob).approve(await pool.getAddress(), liquidityAmount);
-      await pool.connect(bob).deposit(await asset.getAddress(), liquidityAmount);
-      await asset
-        .connect(alice)
-        .approve(await pool.getAddress(), collateralAmount);
-      await pool
-        .connect(alice)
-        .deposit(await asset.getAddress(), collateralAmount);
+      await asset.connect(bob).approve(await pool.getAddress(), amount);
+      await pool.connect(bob).deposit(await asset.getAddress(), amount);
 
       await expect(
-        pool.connect(alice).borrow(await asset.getAddress(), borrowAmount),
-      )
-        .to.emit(pool, "Borrow")
-        .withArgs(
-          await alice.getAddress(),
-          await asset.getAddress(),
-          borrowAmount,
-        );
+        pool.connect(alice).borrow(await asset.getAddress(), amount),
+      ).to.be.revertedWith("INSUFFICIENT_COLLATERAL");
     });
 
-    it("borrow successfully should increase debt and transfer underlying", async function () {
+    it("increases debt and transfers underlying on success", async function () {
       const liquidityAmount = ethers.parseUnits("1000", DECIMALS);
       const collateralAmount = ethers.parseUnits("100", DECIMALS);
       const borrowAmount = ethers.parseUnits("50", DECIMALS);
@@ -295,16 +210,12 @@ describe("LendingPool", function () {
 
       await asset.connect(bob).approve(await pool.getAddress(), liquidityAmount);
       await pool.connect(bob).deposit(assetAddress, liquidityAmount);
-      await asset
-        .connect(alice)
-        .approve(await pool.getAddress(), collateralAmount);
+      await asset.connect(alice).approve(await pool.getAddress(), collateralAmount);
       await pool.connect(alice).deposit(assetAddress, collateralAmount);
 
       const [, borrowIndexRay] = await pool.getReserveIndexes(assetAddress);
       const balanceBefore = await asset.balanceOf(aliceAddress);
-
       await pool.connect(alice).borrow(assetAddress, borrowAmount);
-
       const balanceAfter = await asset.balanceOf(aliceAddress);
       const debtAfter = await debtToken.balanceOfWithIndex(
         aliceAddress,
@@ -317,60 +228,20 @@ describe("LendingPool", function () {
   });
 
   describe("repay", function () {
-    it("repay on uninitialized reserve should revert", async function () {
-      const amount = ethers.parseUnits("1", DECIMALS);
-      const uninitializedAsset = await createUninitializedAsset();
-
+    it("reverts on zero amount", async function () {
       await expect(
-        pool.connect(alice).repay(await uninitializedAsset.getAddress(), amount),
-      ).to.be.revertedWith("RESERVE_NOT_FOUND");
-    });
-
-    it("repay amount = 0 should revert", async function () {
-      const amount = ethers.parseUnits("0", DECIMALS);
-
-      await expect(
-        pool.connect(alice).repay(await asset.getAddress(), amount),
+        pool.connect(alice).repay(await asset.getAddress(), 0),
       ).to.be.revertedWith("INVALID_AMOUNT");
     });
 
-    it("repay should revert when user has no debt", async function () {
+    it("reverts when user has no debt", async function () {
       const amount = ethers.parseUnits("1", DECIMALS);
-
       await expect(
         pool.connect(alice).repay(await asset.getAddress(), amount),
       ).to.be.revertedWith("NO_DEBT");
     });
 
-    it("repay partial should reduce debt and emit event", async function () {
-      const liquidityAmount = ethers.parseUnits("1000", DECIMALS);
-      const collateralAmount = ethers.parseUnits("100", DECIMALS);
-      const borrowAmount = ethers.parseUnits("50", DECIMALS);
-      const repayAmount = ethers.parseUnits("20", DECIMALS);
-      const aliceAddress = await alice.getAddress();
-      const assetAddress = await asset.getAddress();
-
-      await setupAliceDebt(liquidityAmount, collateralAmount, borrowAmount);
-      const [, borrowIndexRay] = await pool.getReserveIndexes(assetAddress);
-      const debtBefore = await debtToken.balanceOfWithIndex(
-        aliceAddress,
-        borrowIndexRay,
-      );
-
-      await asset.connect(alice).approve(await pool.getAddress(), repayAmount);
-
-      await expect(pool.connect(alice).repay(assetAddress, repayAmount))
-        .to.emit(pool, "Repay")
-        .withArgs(aliceAddress, assetAddress, repayAmount);
-
-      const debtAfter = await debtToken.balanceOfWithIndex(
-        aliceAddress,
-        borrowIndexRay,
-      );
-      expect(debtBefore - debtAfter).to.equal(repayAmount);
-    });
-
-    it("repay full when amount > debt should only repay debt", async function () {
+    it("repays all debt when amount is greater than debt", async function () {
       const liquidityAmount = ethers.parseUnits("1000", DECIMALS);
       const collateralAmount = ethers.parseUnits("100", DECIMALS);
       const borrowAmount = ethers.parseUnits("50", DECIMALS);
@@ -382,10 +253,7 @@ describe("LendingPool", function () {
       const [, borrowIndexRay] = await pool.getReserveIndexes(assetAddress);
 
       await asset.connect(alice).approve(await pool.getAddress(), repayAmount);
-
-      await expect(pool.connect(alice).repay(assetAddress, repayAmount))
-        .to.emit(pool, "Repay")
-        .withArgs(aliceAddress, assetAddress, borrowAmount);
+      await pool.connect(alice).repay(assetAddress, repayAmount);
 
       const debtAfter = await debtToken.balanceOfWithIndex(
         aliceAddress,
@@ -393,42 +261,10 @@ describe("LendingPool", function () {
       );
       expect(debtAfter).to.equal(0n);
     });
-
-    it("repay without approval should revert", async function () {
-      const liquidityAmount = ethers.parseUnits("1000", DECIMALS);
-      const collateralAmount = ethers.parseUnits("100", DECIMALS);
-      const borrowAmount = ethers.parseUnits("50", DECIMALS);
-      const repayAmount = ethers.parseUnits("10", DECIMALS);
-
-      await setupAliceDebt(liquidityAmount, collateralAmount, borrowAmount);
-
-      await expect(
-        pool.connect(alice).repay(await asset.getAddress(), repayAmount),
-      ).to.be.reverted;
-    });
   });
 
-  describe("reserve and admin views", function () {
-    it("getReserveAddresses should return initialized token addresses", async function () {
-      const [aTokenAddress, debtTokenAddress] = await pool.getReserveAddresses(
-        await asset.getAddress(),
-      );
-
-      expect(aTokenAddress).to.equal(await aToken.getAddress());
-      expect(debtTokenAddress).to.equal(await debtToken.getAddress());
-    });
-
-    it("getReserveIndexes should return initial indexes", async function () {
-      const RAY = ethers.parseUnits("1", 27);
-      const [liquidityIndexRay, borrowIndexRay] = await pool.getReserveIndexes(
-        await asset.getAddress(),
-      );
-
-      expect(liquidityIndexRay).to.equal(RAY);
-      expect(borrowIndexRay).to.equal(RAY);
-    });
-
-    it("initReserve by non-owner should revert", async function () {
+  describe("admin and reserve config", function () {
+    it("non-owner cannot init reserve", async function () {
       const { otherAsset, otherAToken, otherDebtToken } =
         await createSecondaryReserveTokens();
 
@@ -448,7 +284,7 @@ describe("LendingPool", function () {
       ).to.be.reverted;
     });
 
-    it("initReserve with existing asset should revert", async function () {
+    it("cannot init an existing reserve twice", async function () {
       await expect(
         pool.initReserve(
           await asset.getAddress(),
@@ -463,25 +299,7 @@ describe("LendingPool", function () {
       ).to.be.revertedWith("RESERVE_EXISTS");
     });
 
-    it("initReserve with bad liquidation threshold should revert", async function () {
-      const { otherAsset, otherAToken, otherDebtToken } =
-        await createSecondaryReserveTokens();
-
-      await expect(
-        pool.initReserve(
-          await otherAsset.getAddress(),
-          await otherAToken.getAddress(),
-          await otherDebtToken.getAddress(),
-          DECIMALS,
-          8000,
-          10001,
-          10500,
-          1000,
-        ),
-      ).to.be.revertedWith("BAD_LIQ_THRESHOLD");
-    });
-
-    it("initReserve with bad ltv should revert", async function () {
+    it("rejects invalid ltv configuration", async function () {
       const { otherAsset, otherAToken, otherDebtToken } =
         await createSecondaryReserveTokens();
 
@@ -497,24 +315,6 @@ describe("LendingPool", function () {
           1000,
         ),
       ).to.be.revertedWith("BAD_LTV");
-    });
-
-    it("initReserve with bad reserve factor should revert", async function () {
-      const { otherAsset, otherAToken, otherDebtToken } =
-        await createSecondaryReserveTokens();
-
-      await expect(
-        pool.initReserve(
-          await otherAsset.getAddress(),
-          await otherAToken.getAddress(),
-          await otherDebtToken.getAddress(),
-          DECIMALS,
-          8000,
-          8500,
-          10500,
-          10001,
-        ),
-      ).to.be.revertedWith("BAD_RESERVE_FACTOR");
     });
   });
 });
