@@ -12,9 +12,10 @@ contract MockPriceOracle is Ownable, IPriceOracle {
     event PriceUpdated(address indexed asset, uint256 price);
 
     constructor(address owner_) Ownable(owner_) {}
+
     function setPrice(address asset, uint256 price) external onlyOwner {
-        require(asset != address(0),"ASSET_REZO");
-        require(price>0,"PRICE_REZO");
+        require(asset != address(0), "ASSET_ZERO");
+        require(price > 0, "PRICE_ZERO");
         prices[asset] = price;
         emit PriceUpdated(asset, price);
     }

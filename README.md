@@ -1,41 +1,48 @@
-# Mini-Lending-Protocol
+# Mini Lending Protocol
 
-A simplified decentralized lending protocol inspired by Aave.
+Giao thức lending tối giản theo mô hình Aave, tối ưu cho demo trên testnet.
 
-This project implements:
+## Features
 
-- Multi-asset deposits
-- Borrowing against collateral
-- Index-based interest accrual
-- Health factor calculation
-- Liquidation mechanism
-- Price oracle integration
-- Risk parameter management
+- Multi-reserve deposit / borrow / repay / withdraw
+- Scaled accounting bằng `liquidityIndex` và `borrowIndex`
+- Health factor và liquidation theo giá oracle
+- Risk params theo reserve: `ltv`, `liquidationThreshold`, `liquidationBonus`
 
-## Core Concepts
+## Current Scope
 
-- Depositors receive aToken representing their share.
-- Borrowers receive debt tracked via variable debt tokens.
-- Interest accrues using index-based accounting.
-- Positions become liquidatable if health factor < 1.
+Phiên bản hiện tại dành cho demo kỹ thuật:
 
-## Why This Project?
+- Đã có full unit tests cho core flow và liquidation
+- Hỗ trợ mock oracle để mô phỏng price move
+- Chưa phải bản production/mainnet
 
-This project demonstrates:
+## Project Structure
 
-- DeFi accounting models
-- Precision math handling (WAD/RAY)
-- Risk management logic
-- Economic security design
-- Invariant-driven testing
+- `contract/`: smart contracts + hardhat tests
+- `docs/`: tài liệu rút gọn, đồng bộ theo code hiện tại
+- `frontend/`: giao diện (nếu dùng cho demo)
 
-## Architecture Overview
+## Quick Start
 
-LendingPool → Core logic  
-AToken → Deposit receipt token  
-VariableDebtToken → Borrow tracking  
-PriceOracle → Asset pricing  
-InterestRateModel → Utilization-based rate model
+```bash
+cd contract
+npm install
+npx hardhat test
+```
 
-See ARCHITECTURE.md for full details.
+## Testnet Demo Flow
 
+1. Deploy `MockPriceOracle` và `LendingPool`
+2. Deploy token wrappers (`AToken`, `VariableDebtToken`) cho mỗi reserve
+3. `initReserve` + `setPrice`
+4. Chạy kịch bản: deposit -> borrow -> price drop -> liquidate
+
+## Documentation
+
+- `docs/README.md`
+- `docs/PROTOCOL.md`
+- `docs/CONTRACT_API.md`
+- `docs/TESTNET_DEPLOY.md`
+- `docs/TESTING.md`
+- `docs/LIMITATIONS.md`
