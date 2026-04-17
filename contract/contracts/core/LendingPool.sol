@@ -91,6 +91,8 @@ contract LendingPool is ILendingPool, Ownable {
         require(address(r.aToken) == address(0), "RESERVE_EXISTS");
         require(liquidationThresholdBps <= 10_000, "BAD_LIQ_THRESHOLD");
         require(ltvBps <= liquidationThresholdBps, "BAD_LTV");
+        require(liquidationBonusBps >= 10_000, "BAD_LIQ_BONUS");
+        require(liquidationBonusBps <= 12_000, "BAD_LIQ_BONUS");
         require(reserveFactorBps <= 10_000, "BAD_RESERVE_FACTOR");
 
         r.aToken = IAToken(aToken);
@@ -146,6 +148,15 @@ contract LendingPool is ILendingPool, Ownable {
         );
         require(scaledAmount > 0, "BURN_FAILED");
 
+        (, uint256 debtUsdWad, , uint256 liquidationThresholdUsdWad) =
+            _computeUserAccountData(msg.sender);
+        if (debtUsdWad > 0) {
+            uint256 healthFactorWad = liquidationThresholdUsdWad.divWadDown(
+                debtUsdWad
+            );
+            require(healthFactorWad >= WAD, "HEALTH_FACTOR_TOO_LOW");
+        }
+
         r.aToken.transferUnderlyingTo(msg.sender, amount);
         emit Withdraw(msg.sender, asset, amount);
     }
@@ -162,9 +173,13 @@ contract LendingPool is ILendingPool, Ownable {
         uint256 availableLiquidity = IERC20(asset).balanceOf(address(r.aToken));
         require(availableLiquidity >= amount, "INSUFFICIENT_LIQUIDITY");
 
-        (, , uint256 maxBorrowUsdWad, ) = _computeUserAccountData(msg.sender);
+        (, uint256 debtUsdWad, uint256 maxBorrowUsdWad, ) =
+            _computeUserAccountData(msg.sender);
         uint256 borrowUsdWad = _assetToUsdWad(asset, amount);
-        require(borrowUsdWad <= maxBorrowUsdWad, "INSUFFICIENT_COLLATERAL");
+        require(
+            debtUsdWad + borrowUsdWad <= maxBorrowUsdWad,
+            "INSUFFICIENT_COLLATERAL"
+        );
 
         uint256 scaledAmount = r.variableDebtToken.mint(
             msg.sender,

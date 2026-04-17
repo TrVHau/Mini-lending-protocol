@@ -56,7 +56,10 @@ describe("LendingPool", function () {
     );
 
     await oracle.setPrice(await asset.getAddress(), ONE);
-    await asset.mint(await bob.getAddress(), ethers.parseUnits("1000", DECIMALS));
+    await asset.mint(
+      await bob.getAddress(),
+      ethers.parseUnits("1000", DECIMALS),
+    );
     await asset.mint(
       await alice.getAddress(),
       ethers.parseUnits("1000", DECIMALS),
@@ -121,7 +124,9 @@ describe("LendingPool", function () {
 
       await asset.connect(alice).approve(await pool.getAddress(), amount);
       await expect(
-        pool.connect(alice).deposit(await uninitializedAsset.getAddress(), amount),
+        pool
+          .connect(alice)
+          .deposit(await uninitializedAsset.getAddress(), amount),
       ).to.be.revertedWith("RESERVE_NOT_FOUND");
     });
 
@@ -148,8 +153,12 @@ describe("LendingPool", function () {
       const depositAmount = ethers.parseUnits("100", DECIMALS);
       const withdrawAmount = ethers.parseUnits("150", DECIMALS);
 
-      await asset.connect(alice).approve(await pool.getAddress(), depositAmount);
-      await pool.connect(alice).deposit(await asset.getAddress(), depositAmount);
+      await asset
+        .connect(alice)
+        .approve(await pool.getAddress(), depositAmount);
+      await pool
+        .connect(alice)
+        .deposit(await asset.getAddress(), depositAmount);
 
       await expect(
         pool.connect(alice).withdraw(await asset.getAddress(), withdrawAmount),
@@ -160,14 +169,33 @@ describe("LendingPool", function () {
       const depositAmount = ethers.parseUnits("100", DECIMALS);
       const withdrawAmount = ethers.parseUnits("50", DECIMALS);
 
-      await asset.connect(alice).approve(await pool.getAddress(), depositAmount);
-      await pool.connect(alice).deposit(await asset.getAddress(), depositAmount);
+      await asset
+        .connect(alice)
+        .approve(await pool.getAddress(), depositAmount);
+      await pool
+        .connect(alice)
+        .deposit(await asset.getAddress(), depositAmount);
 
       const balanceBefore = await asset.balanceOf(await alice.getAddress());
-      await pool.connect(alice).withdraw(await asset.getAddress(), withdrawAmount);
+      await pool
+        .connect(alice)
+        .withdraw(await asset.getAddress(), withdrawAmount);
       const balanceAfter = await asset.balanceOf(await alice.getAddress());
 
       expect(balanceAfter - balanceBefore).to.equal(withdrawAmount);
+    });
+
+    it("reverts when withdrawal makes health factor below 1", async function () {
+      const liquidityAmount = ethers.parseUnits("1000", DECIMALS);
+      const collateralAmount = ethers.parseUnits("100", DECIMALS);
+      const borrowAmount = ethers.parseUnits("80", DECIMALS);
+      const withdrawAmount = ethers.parseUnits("10", DECIMALS);
+
+      await setupAliceDebt(liquidityAmount, collateralAmount, borrowAmount);
+
+      await expect(
+        pool.connect(alice).withdraw(await asset.getAddress(), withdrawAmount),
+      ).to.be.revertedWith("HEALTH_FACTOR_TOO_LOW");
     });
   });
 
@@ -182,8 +210,12 @@ describe("LendingPool", function () {
       const liquidityAmount = ethers.parseUnits("10", DECIMALS);
       const borrowAmount = ethers.parseUnits("20", DECIMALS);
 
-      await asset.connect(bob).approve(await pool.getAddress(), liquidityAmount);
-      await pool.connect(bob).deposit(await asset.getAddress(), liquidityAmount);
+      await asset
+        .connect(bob)
+        .approve(await pool.getAddress(), liquidityAmount);
+      await pool
+        .connect(bob)
+        .deposit(await asset.getAddress(), liquidityAmount);
 
       await expect(
         pool.connect(alice).borrow(await asset.getAddress(), borrowAmount),
@@ -208,9 +240,13 @@ describe("LendingPool", function () {
       const aliceAddress = await alice.getAddress();
       const assetAddress = await asset.getAddress();
 
-      await asset.connect(bob).approve(await pool.getAddress(), liquidityAmount);
+      await asset
+        .connect(bob)
+        .approve(await pool.getAddress(), liquidityAmount);
       await pool.connect(bob).deposit(assetAddress, liquidityAmount);
-      await asset.connect(alice).approve(await pool.getAddress(), collateralAmount);
+      await asset
+        .connect(alice)
+        .approve(await pool.getAddress(), collateralAmount);
       await pool.connect(alice).deposit(assetAddress, collateralAmount);
 
       const [, borrowIndexRay] = await pool.getReserveIndexes(assetAddress);
@@ -224,6 +260,37 @@ describe("LendingPool", function () {
 
       expect(balanceAfter - balanceBefore).to.equal(borrowAmount);
       expect(debtAfter).to.equal(borrowAmount);
+    });
+
+    it("reverts when cumulative borrows exceed max borrow", async function () {
+      const liquidityAmount = ethers.parseUnits("1000", DECIMALS);
+      const collateralAmount = ethers.parseUnits("100", DECIMALS);
+      const firstBorrowAmount = ethers.parseUnits("70", DECIMALS);
+      const secondBorrowAmount = ethers.parseUnits("20", DECIMALS);
+
+      await asset
+        .connect(bob)
+        .approve(await pool.getAddress(), liquidityAmount);
+      await pool
+        .connect(bob)
+        .deposit(await asset.getAddress(), liquidityAmount);
+
+      await asset
+        .connect(alice)
+        .approve(await pool.getAddress(), collateralAmount);
+      await pool
+        .connect(alice)
+        .deposit(await asset.getAddress(), collateralAmount);
+
+      await pool
+        .connect(alice)
+        .borrow(await asset.getAddress(), firstBorrowAmount);
+
+      await expect(
+        pool
+          .connect(alice)
+          .borrow(await asset.getAddress(), secondBorrowAmount),
+      ).to.be.revertedWith("INSUFFICIENT_COLLATERAL");
     });
   });
 
@@ -315,6 +382,37 @@ describe("LendingPool", function () {
           1000,
         ),
       ).to.be.revertedWith("BAD_LTV");
+    });
+
+    it("rejects invalid liquidation bonus configuration", async function () {
+      const { otherAsset, otherAToken, otherDebtToken } =
+        await createSecondaryReserveTokens();
+
+      await expect(
+        pool.initReserve(
+          await otherAsset.getAddress(),
+          await otherAToken.getAddress(),
+          await otherDebtToken.getAddress(),
+          DECIMALS,
+          8000,
+          8500,
+          9999,
+          1000,
+        ),
+      ).to.be.revertedWith("BAD_LIQ_BONUS");
+
+      await expect(
+        pool.initReserve(
+          await otherAsset.getAddress(),
+          await otherAToken.getAddress(),
+          await otherDebtToken.getAddress(),
+          DECIMALS,
+          8000,
+          8500,
+          12001,
+          1000,
+        ),
+      ).to.be.revertedWith("BAD_LIQ_BONUS");
     });
   });
 });
