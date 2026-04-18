@@ -4,7 +4,7 @@ import { BrowserRouter as Router, Routes, Route } from "react-router-dom";
 import { config } from "./config/wagmi";
 
 import Landing from "./pages/Landing";
-import Connect from "./pages/Connect";
+import Connect from "./components/WalletConnect";
 
 const queryClient = new QueryClient();
 
@@ -14,7 +14,8 @@ function App() {
       <QueryClientProvider client={queryClient}>
         <Router>
           <Routes>
-            <Route path="/" element={<Connect />} />
+            <Route path="/" element={<Landing />} />
+            <Route path="/connect" element={<Connect />} />
           </Routes>
         </Router>
       </QueryClientProvider>

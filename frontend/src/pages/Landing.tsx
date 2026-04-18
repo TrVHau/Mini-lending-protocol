@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 
-export default function Landing() {
+function Landing() {
   return (
     <div className="flex flex-col items-center justify-center h-screen">
       <h1 className="text-4xl font-bold mb-8">
@@ -18,3 +18,4 @@ export default function Landing() {
     </div>
   );
 }
+export default Landing;
