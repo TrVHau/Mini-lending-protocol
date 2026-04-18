@@ -1,5 +1,6 @@
 import { http, createConfig } from "wagmi";
 import { hardhat, sepolia } from "wagmi/chains";
+// hiện tại dùng hardhat trước để test, sau này có thể chuyển sang sepolia
 export const config = createConfig({
   chains: [hardhat, sepolia],
   transports: {
