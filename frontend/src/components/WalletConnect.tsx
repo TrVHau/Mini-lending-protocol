@@ -7,7 +7,6 @@ function WalletConnect() {
 
   const connectors = useConnectors();
 
-  // Trạng thái: Đã kết nối
   if (isConnected) {
     return (
       <div className="flex items-center h-12 w-60">
