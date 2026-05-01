@@ -11,7 +11,7 @@ function WalletConnect() {
     return (
       <div className="flex items-center h-12 w-60">
         <div className="flex items-center gap-2 px-2">
-          <span className="text-sm font-medium text-gray-700">
+          <span className="text-sm font-medium text-green-700">
             {address?.slice(0, 6)}...{address?.slice(-4)}
           </span>
         </div>
@@ -39,8 +39,9 @@ function WalletConnect() {
         </button>
       ))}
       {error && (
-        <div className="absolute top-full mt-1 px-2 py-1 text-xs text-red-600 bg-red-100 z-10 shadow-sm">
-          {error.message}
+        <div className="absolute top-full mt-1 px-2 py-1 text-xs text-red-600 bg-red-100 z-10 shadow-sm rounded-md">
+          user rejected the connection request or no provider found. Please try
+          again.
         </div>
       )}
     </div>
