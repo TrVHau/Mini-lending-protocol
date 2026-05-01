@@ -1,9 +1,15 @@
-// hook này là để lấy health factor của user, sẽ được dùng trong AccountSummary để hiển thị thông tin tài khoản
-// input: userAddress (địa chỉ ví của user)
-// Guard: chỉ gọi hook khi userAddress đã có giá trị (sử dụng enabled trong query options)
-// contract call: gọi hàm getHealthFactor(address) của LendingPool contract để lấy health factor của user
-// transform data: nếu data trả về là undefined thì trả về null để dễ xử lý trong component
-// return: trả về healthFactor, isLoading và error để component có thể hiển thị thông tin phù hợp
+// Purpose:
+// - Lay health factor cua user de hien thi muc do an toan cua vi the vay.
+// Input:
+// - userAddress: dia chi vi can truy van.
+// Guard:
+// - Chi goi contract khi userAddress ton tai (enabled = !!userAddress).
+// Contract:
+// - LendingPool.getHealthFactor(userAddress).
+// Transform:
+// - Chuyen undefined thanh null de component de xu ly trang thai chua co du lieu.
+// Return:
+// - { healthFactor, isLoading, error }
 import { useReadContract } from "wagmi";
 import { LENDING_POOL_ADDRESS, LENDING_POOL_ABI } from "../../config/contracts";
 
@@ -14,7 +20,7 @@ function useHealthFactor(userAddress: string | undefined) {
     functionName: "getHealthFactor",
     args: [userAddress || "0x"],
     query: {
-      enabled: !!userAddress, // !! là query khi có userAddress, tránh gọi hàm khi userAddress chưa có giá trị
+      enabled: !!userAddress,
     },
   });
 

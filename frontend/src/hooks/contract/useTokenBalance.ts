@@ -1,9 +1,16 @@
-// hook này là để lấy balance của user, sẽ được dùng trong AccountSummary để hiển thị thông tin tài khoản
-// input: userAddress (địa chỉ ví của user), tokenAddress (địa chỉ contract của token cần lấy balance)
-// Guard: chỉ gọi hook khi userAddress đã có giá trị (sử dụng enabled trong query options)
-// contract call: gọi hàm balanceOf(address) của ERC20 contract để lấy balance của user
-// transform data: nếu data trả về là undefined thì trả về null để dễ xử lý trong component
-// return: trả về balance, isLoading và error để component có thể hiển thị thông tin phù hợp
+// Purpose:
+// - Lay so du ERC20 cua user theo tung token.
+// Input:
+// - userAddress: dia chi vi can truy van.
+// - tokenAddress: dia chi token ERC20 can doc balance.
+// Guard:
+// - Chi goi contract khi userAddress ton tai va tokenAddress khong rong.
+// Contract:
+// - ERC20.balanceOf(userAddress).
+// Transform:
+// - Chuyen undefined thanh null de UI de xu ly.
+// Return:
+// - { balance, isLoading, error }
 import { useReadContract } from "wagmi";
 import { ERC20_ABI } from "../../config/contracts";
 
@@ -17,7 +24,7 @@ function useTokenBalance(
     functionName: "balanceOf",
     args: [userAddress || "0x"],
     query: {
-      enabled: !!userAddress, // !! là query khi có userAddress, tránh gọi hàm khi userAddress chưa có giá trị
+      enabled: !!userAddress && !!tokenAddress,
     },
   });
 
