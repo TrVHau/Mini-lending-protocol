@@ -282,26 +282,57 @@ contract LendingPool is ILendingPool, Ownable {
     // Main View Functions
     // -------------------------------------------------------------------------
 
-    function getReserveIndexes(
-        address asset
-    )
-        external
-        view
-        returns (
-            uint256 liquidityIndexRay,
-            uint256 borrowIndexRay,
-            uint40 lastUpdateTimestamp
-        )
-    {
-        ReserveData storage r = reserves[asset];
-        return (r.liquidityIndexRay, r.borrowIndexRay, r.lastUpdateTimestamp);
-    }
+    // function getReserveIndexes(
+    //     address asset
+    // )
+    //     external
+    //     view
+    //     returns (
+    //         uint256 liquidityIndexRay,
+    //         uint256 borrowIndexRay,
+    //         uint40 lastUpdateTimestamp
+    //     )
+    // {
+    //     ReserveData storage r = reserves[asset];
+    //     return (r.liquidityIndexRay, r.borrowIndexRay, r.lastUpdateTimestamp);
+    // }
 
-    function getReserveAddresses(
-        address asset
-    ) external view returns (address aToken, address debtToken) {
+    // function getReserveAddresses(
+    //     address asset
+    // ) external view returns (address aToken, address debtToken) {
+    //     ReserveData storage r = reserves[asset];
+    //     return (address(r.aToken), address(r.variableDebtToken));
+    // }
+
+    function getReserveData(address asset) external view returns(
+        address aToken,
+        address debtToken,
+        uint8 assetDecimals,
+        bool isActive,
+        bool isFrozen,
+        uint16 ltvBps,
+        uint16 liquidationThresholdBps,
+        uint16 liquidationBonusBps,
+        uint16 reserveFactorBps,
+        uint256 liquidityIndexRay,
+        uint256 borrowIndexRay,
+        uint40 lastUpdateTimestamp
+    ) {
         ReserveData storage r = reserves[asset];
-        return (address(r.aToken), address(r.variableDebtToken));
+        return (
+            address(r.aToken),
+            address(r.variableDebtToken),
+            r.assetDecimals,
+            r.isActive,
+            r.isFrozen,
+            r.ltvBps,
+            r.liquidationThresholdBps,
+            r.liquidationBonusBps,
+            r.reserveFactorBps,
+            r.liquidityIndexRay,
+            r.borrowIndexRay,
+            r.lastUpdateTimestamp
+        );
     }
 
     function getHealthFactor(address user) external view override returns (uint256) {
@@ -341,6 +372,49 @@ contract LendingPool is ILendingPool, Ownable {
             healthFactorWad = liquidationThresholdUsdWad.divWadDown(debtUsdWad);
         }
     }
+
+    function getUserReserveData(
+        address user,
+        address asset
+    )
+        external
+        view
+        returns (
+            uint256 collateralAmount,
+            uint256 debtAmount,
+            uint256 collateralUsdWad,
+            uint256 debtUsdWad
+        )
+    {
+        ReserveData storage r = reserves[asset];
+        require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
+
+        collateralAmount = r.aToken.balanceOfWithIndex(
+            user,
+            r.liquidityIndexRay
+        );
+        debtAmount = r.variableDebtToken.balanceOfWithIndex(
+            user,
+            r.borrowIndexRay
+        );
+
+        collateralUsdWad = collateralAmount > 0
+            ? _assetToUsdWad(asset, collateralAmount)
+            : 0;
+        debtUsdWad = debtAmount > 0 ? _assetToUsdWad(asset, debtAmount) : 0;
+    }
+
+    function getReserveList() external view returns (address[] memory) {
+    return reserveList;
+    }
+
+    function getReserveCount() external view returns (uint256) {
+    return reserveList.length;
+    }
+
+    function getReserveAt(uint256 index) external view returns (address) {
+    return reserveList[index];
+    }   
 
     // -------------------------------------------------------------------------
     // Internal Helpers
