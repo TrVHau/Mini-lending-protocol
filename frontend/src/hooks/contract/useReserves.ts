@@ -1,55 +1,36 @@
 // Purpose:
-// - Tong hop danh sach reserves/markets de render bang thi truong.
+// - Doc danh sach reserve/market de render bang thi truong.
 // Input:
-// - Co the khong can input, hoac nhan mang asset addresses neu UI da biet san.
+// - Khong can input (lay tu LendingPool).
 // Guard:
-// - Chi query khi co danh sach asset neu hook phu thuoc vao danh sach tu ngoai.
+// - Chi query khi contract address co san.
 // Contract:
-// - Thuong ket hop LendingPool.getReserveAddresses(asset)
-//   va LendingPool.getReserveIndexes(asset) cho tung asset.
+// - LendingPool.getReserveList().
 // Transform:
-// - Gop du lieu tung reserve thanh object market de UI de map.
+// - Map danh sach asset thanh object market cho UI de map.
 // Return:
 // - { reserves, isLoading, error }
 
-// import { useReadContracts } from "wagmi";
-// import { LENDING_POOL_ADDRESS, LENDING_POOL_ABI } from "../../config/contracts";
+import { useReadContract } from "wagmi";
+import { LENDING_POOL_ADDRESS, LENDING_POOL_ABI } from "../../config/contracts";
+import { useMemo } from "react";
 
-// function useReserves() {
-//   const { data, isLoading, error } = useReadContracts({
-//     contracts: assets.flatMap((assetAddress) => [
-//       {
-//         address: LENDING_POOL_ADDRESS,
-//         abi: LENDING_POOL_ABI,
-//         functionName: "getReserveAddresses",
-//         args: [assetAddress as `0x${string}`],
-//         query: {
-//           enabled: !!assetAddress,
-//         },
-//       },
-//       {
-//         address: LENDING_POOL_ADDRESS,
-//         abi: LENDING_POOL_ABI,
-//         functionName: "getReserveIndexes",
-//         args: [assetAddress as `0x${string}`],
-//         query: {
-//           enabled: !!assetAddress,
-//         },
-//       },
-//     ]),
-//   });
+// address[] getReserveList();
+type Reserves = `0x${string}`[];
 
-//   const reserves = (data as readonly `0x${string}`[] | undefined)?.map(
-//     (reserveAddress) => ({
-//       reserveAddress,
-//     }),
-//   );
+function useReserves() {
+  const { data, isLoading, error } = useReadContract({
+    address: LENDING_POOL_ADDRESS,
+    abi: LENDING_POOL_ABI,
+    functionName: "getReserveList",
+  });
 
-//   return {
-//     reserves: reserves ?? [],
-//     isLoading,
-//     error,
-//   };
-// }
+  const reserves = useMemo(() => {
+    if (!data) return undefined;
+    return data as Reserves;
+  }, [data]);
 
-// export default useReserves;
+  return { reserves, isLoading, error };
+}
+
+export default useReserves;
