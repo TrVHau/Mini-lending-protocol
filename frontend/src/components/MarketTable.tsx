@@ -1,4 +1,7 @@
+import { useReservesWithData } from "../hooks";
 function MarketTable() {
+  const { reserves, reserveDataByAsset } = useReservesWithData();
+
   return (
     <div className="mt-6 rounded border border-slate-800 bg-slate-950 p-6">
       <div className="mb-5 flex items-end justify-between gap-4">
@@ -29,54 +32,35 @@ function MarketTable() {
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-800">
-            <tr className="hover:bg-slate-900">
-              <td className="px-6 py-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-700">
-                    <img
-                      src="/assets/eth-logo.png"
-                      alt="ETH"
-                      className="h-6 w-6 rounded-full"
-                    />
-                  </div>
-                  <div>
-                    <span className="block text-sm font-semibold text-slate-50">
-                      ETH
-                    </span>
-                    <span className="text-xs text-slate-400">Ethereum</span>
-                  </div>
-                </div>
-              </td>
-              <td className="px-6 py-4 text-sm font-medium text-slate-50">
-                +2.5%
-              </td>
-              <td className="px-6 py-4 text-sm text-slate-200">$1,800.00</td>
-              <td className="px-6 py-4 text-sm text-slate-300">$500M</td>
-            </tr>
-            <tr className="hover:bg-slate-900">
-              <td className="px-6 py-4">
-                <div className="flex items-center gap-3">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-700">
-                    <img
-                      src="/assets/dai-logo.png"
-                      alt="DAI"
-                      className="h-6 w-6 rounded-full"
-                    />
-                  </div>
-                  <div>
-                    <span className="block text-sm font-semibold text-slate-50">
-                      DAI
-                    </span>
-                    <span className="text-xs text-slate-400">Stablecoin</span>
-                  </div>
-                </div>
-              </td>
-              <td className="px-6 py-4 text-sm font-medium text-slate-50">
-                0.0%
-              </td>
-              <td className="px-6 py-4 text-sm text-slate-200">$1.00</td>
-              <td className="px-6 py-4 text-sm text-slate-300">$200M</td>
-            </tr>
+            {reserves.map((asset) => {
+              const reserve = reserveDataByAsset[asset];
+              return (
+                <tr key={asset} className="hover:bg-slate-900">
+                  <td className="px-6 py-4">
+                    <div className="flex items-center gap-3">
+                      <div className="flex h-10 w-10 items-center justify-center rounded-full border border-slate-700">
+                        <span className="text-xs text-slate-300">
+                          {asset.slice(2, 6).toUpperCase()}
+                        </span>
+                      </div>
+                      <div>
+                        <span className="block text-sm font-semibold text-slate-50">
+                          {asset.slice(0, 6)}...{asset.slice(-4)}
+                        </span>
+                        <span className="text-xs text-slate-400">
+                          {reserve?.isActive ? "Active" : "Inactive"}
+                        </span>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-sm font-medium text-slate-50">
+                    --
+                  </td>
+                  <td className="px-6 py-4 text-sm text-slate-200">--</td>
+                  <td className="px-6 py-4 text-sm text-slate-300">--</td>
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>

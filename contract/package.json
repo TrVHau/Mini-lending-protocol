@@ -4,7 +4,8 @@
   "private": true,
   "description": "",
   "scripts": {
-    "test": "npx hardhat test"
+    "test": "npx hardhat test",
+    "deploy:local": "npx hardhat run scripts/deploy-local.ts --network localhost"
   },
   "license": "ISC",
   "devDependencies": {
