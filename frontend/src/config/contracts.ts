@@ -5,7 +5,8 @@ import mockErc20Artifact from "../abi/MockERC20.json";
 import mockPriceOracleArtifact from "../abi/MockPriceOracle.json";
 import type { Abi } from "viem";
 
-export const LENDING_POOL_ADDRESS = "0x..." as const;
+export const LENDING_POOL_ADDRESS =
+  "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512" as const;
 
 export const LENDING_POOL_ABI = lendingPoolArtifact.abi as Abi;
 export const ATOKEN_ABI = aTokenArtifact.abi as Abi;

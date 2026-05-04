@@ -17,7 +17,7 @@ function Navbar() {
       <div className="flex h-full flex-col gap-6 px-4 py-4">
         <div className="flex items-center gap-3 pb-2">
           <div className="flex h-11 w-11 items-center justify-center rounded border border-slate-700 bg-slate-900 text-sm font-bold text-slate-100">
-            MLP
+            <img src="../public/favicon.png" alt="" />
           </div>
           <div>
             <p className="text-xs uppercase tracking-[0.3em] text-slate-400">
