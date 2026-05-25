@@ -1,50 +1,52 @@
-import { useConnection, useConnect, useDisconnect, useConnectors } from "wagmi";
+// wagmi v3 — useConnect trả về object với .mutate(), .connectors, .isPending, .error
+// useDisconnect trả về object với .mutate()
+import { useAccount, useConnect, useDisconnect } from "wagmi";
 
 function WalletConnect() {
-  const { address, isConnected } = useConnection();
-  const { mutate: disconnect } = useDisconnect();
-  const { mutate: connect, isPending, error } = useConnect();
-
-  const connectors = useConnectors();
+  const { address, isConnected } = useAccount();
+  const disconnect = useDisconnect();
+  const connect = useConnect();
 
   if (isConnected) {
     return (
-      <div className="flex items-center h-12 w-60">
-        <div className="flex items-center gap-2 px-2">
-          <span className="text-sm font-medium text-green-700">
-            {address?.slice(0, 6)}...{address?.slice(-4)}
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/20 text-xs text-emerald-400">
+            ●
+          </span>
+          <span className="truncate font-mono text-xs text-slate-300">
+            {address?.slice(0, 6)}…{address?.slice(-4)}
           </span>
         </div>
         <button
-          onClick={() => disconnect()}
-          className="px-3 py-1.5 text-xs font-semibold text-red-600 bg-red-100 rounded-md hover:bg-red-200 transition-colors"
+          onClick={() => disconnect.mutate({})}
+          className="shrink-0 rounded-lg bg-red-900/30 px-2.5 py-1 text-xs font-semibold text-red-400 hover:bg-red-900/50 transition-colors"
         >
-          Disconnect
+          Ngắt
         </button>
       </div>
     );
   }
 
-  // Trạng thái: Chưa kết nối
   return (
-    <div className="relative flex items-center gap-2 h-12 w-60">
-      {connectors.map((c) => (
+    <div className="flex flex-col gap-2">
+      {connect.connectors.map((c) => (
         <button
           key={c.uid}
-          onClick={() => connect({ connector: c })}
-          disabled={isPending}
-          className="ml-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-gray-400 transition-colors shadow-sm"
+          onClick={() => connect.mutate({ connector: c })}
+          disabled={connect.isPending}
+          className="w-full rounded-lg bg-blue-600 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50 transition-colors"
         >
-          {isPending ? "Connecting..." : `Connect ${c.name}`}
+          {connect.isPending ? "Đang kết nối…" : `Kết nối ${c.name}`}
         </button>
       ))}
-      {error && (
-        <div className="absolute top-full mt-1 px-2 py-1 text-xs text-red-600 bg-red-100 z-10 shadow-sm rounded-md">
-          user rejected the connection request or no provider found. Please try
-          again.
-        </div>
+      {connect.error && (
+        <p className="text-[10px] text-red-400 text-center">
+          Không thể kết nối. Vui lòng thử lại.
+        </p>
       )}
     </div>
   );
 }
+
 export default WalletConnect;
