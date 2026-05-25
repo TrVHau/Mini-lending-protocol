@@ -249,7 +249,7 @@ describe("LendingPool", function () {
         .approve(await pool.getAddress(), collateralAmount);
       await pool.connect(alice).deposit(assetAddress, collateralAmount);
 
-      const [, borrowIndexRay] = await pool.getReserveIndexes(assetAddress);
+      const { borrowIndexRay } = await pool.getReserveData(assetAddress);
       const balanceBefore = await asset.balanceOf(aliceAddress);
       await pool.connect(alice).borrow(assetAddress, borrowAmount);
       const balanceAfter = await asset.balanceOf(aliceAddress);
@@ -317,7 +317,7 @@ describe("LendingPool", function () {
       const assetAddress = await asset.getAddress();
 
       await setupAliceDebt(liquidityAmount, collateralAmount, borrowAmount);
-      const [, borrowIndexRay] = await pool.getReserveIndexes(assetAddress);
+      const { borrowIndexRay } = await pool.getReserveData(assetAddress);
 
       await asset.connect(alice).approve(await pool.getAddress(), repayAmount);
       await pool.connect(alice).repay(assetAddress, repayAmount);

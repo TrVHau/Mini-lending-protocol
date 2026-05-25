@@ -147,6 +147,16 @@ describe("LendingPool - Liquidation", function () {
     return { col, debt, aCol, dDebt };
   }
 
+  async function getBorrowIndex(assetAddress: string) {
+    const reserveData = await pool.getReserveData(assetAddress);
+    return reserveData.borrowIndexRay;
+  }
+
+  async function getLiquidityIndex(assetAddress: string) {
+    const reserveData = await pool.getReserveData(assetAddress);
+    return reserveData.liquidityIndexRay;
+  }
+
   it("partial liquidation success", async function () {
     const { col, debt, dDebt } = await setupTwoReserves();
 
@@ -186,9 +196,7 @@ describe("LendingPool - Liquidation", function () {
       ethers.parseUnits("1400", DECIMALS),
     );
 
-    const [, debtBorrowIndexBefore] = await pool.getReserveIndexes(
-      await debt.getAddress(),
-    );
+    const debtBorrowIndexBefore = await getBorrowIndex(await debt.getAddress());
     const debtBefore = await dDebt.balanceOfWithIndex(
       await alice.getAddress(),
       debtBorrowIndexBefore,
@@ -207,9 +215,7 @@ describe("LendingPool - Liquidation", function () {
         ),
     ).to.emit(pool, "Liquidation");
 
-    const [, debtBorrowIndex] = await pool.getReserveIndexes(
-      await debt.getAddress(),
-    );
+    const debtBorrowIndex = await getBorrowIndex(await debt.getAddress());
     const debtAfter = await dDebt.balanceOfWithIndex(
       await alice.getAddress(),
       debtBorrowIndex,
@@ -256,9 +262,7 @@ describe("LendingPool - Liquidation", function () {
       ethers.parseUnits("550", DECIMALS),
     );
 
-    const [, debtBorrowIndexBefore] = await pool.getReserveIndexes(
-      await debt.getAddress(),
-    );
+    const debtBorrowIndexBefore = await getBorrowIndex(await debt.getAddress());
     const userDebtBefore = await dDebt.balanceOfWithIndex(
       await alice.getAddress(),
       debtBorrowIndexBefore,
@@ -276,9 +280,7 @@ describe("LendingPool - Liquidation", function () {
         ),
     ).to.emit(pool, "Liquidation");
 
-    const [, debtBorrowIndexAfter] = await pool.getReserveIndexes(
-      await debt.getAddress(),
-    );
+    const debtBorrowIndexAfter = await getBorrowIndex(await debt.getAddress());
     const userDebtAfter = await dDebt.balanceOfWithIndex(
       await alice.getAddress(),
       debtBorrowIndexAfter,
@@ -322,7 +324,7 @@ describe("LendingPool - Liquidation", function () {
       .connect(alice)
       .borrow(await debt.getAddress(), ethers.parseUnits("700", DECIMALS));
 
-    const [colLiquidityIndexBefore] = await pool.getReserveIndexes(
+    const colLiquidityIndexBefore = await getLiquidityIndex(
       await col.getAddress(),
     );
     const aliceCollateralBefore = await aCol.balanceOfWithIndex(
@@ -347,12 +349,8 @@ describe("LendingPool - Liquidation", function () {
         ),
     ).to.emit(pool, "Liquidation");
 
-    const [colLiquidityIndexAfter] = await pool.getReserveIndexes(
-      await col.getAddress(),
-    );
-    const [, debtBorrowIndexAfter] = await pool.getReserveIndexes(
-      await debt.getAddress(),
-    );
+    const colLiquidityIndexAfter = await getLiquidityIndex(await col.getAddress());
+    const debtBorrowIndexAfter = await getBorrowIndex(await debt.getAddress());
     const aliceCollateralAfter = await aCol.balanceOfWithIndex(
       await alice.getAddress(),
       colLiquidityIndexAfter,
