@@ -25,11 +25,19 @@ npx hardhat test
 
 ## 3. Deploy
 
-Dùng script deploy của dự án (nếu đã có), ví dụ:
+Repo hiện tại chỉ có script local `scripts/deploy-local.ts`. Nếu bạn tạo script testnet riêng thì có thể chạy theo mẫu sau:
 
 ```bash
-npx hardhat run scripts/deploy.ts --network <network>
+npx hardhat run scripts/<your-deploy-script>.ts --network <network>
 ```
+
+Lệnh local thực tế là:
+
+```bash
+npm run deploy:local
+```
+
+Lệnh này dùng cho mạng `localhost` sau khi đã chạy `npx hardhat node`.
 
 Sau deploy, lưu lại:
 

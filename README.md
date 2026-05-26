@@ -1,48 +1,92 @@
 # Mini Lending Protocol
 
-Giao thức lending tối giản theo mô hình Aave, tối ưu cho demo trên testnet.
+Mini Lending Protocol là một giao thức lending tối giản theo mô hình Aave, dùng cho demo kỹ thuật và thử nghiệm local/testnet.
 
-## Features
+## What it does
 
-- Multi-reserve deposit / borrow / repay / withdraw
-- Scaled accounting bằng `liquidityIndex` và `borrowIndex`
-- Health factor và liquidation theo giá oracle
-- Risk params theo reserve: `ltv`, `liquidationThreshold`, `liquidationBonus`
+- `deposit`, `withdraw`, `borrow`, `repay`, `liquidate`
+- Quản lý reserve theo `liquidityIndex` và `borrowIndex`
+- Tính `health factor` và thanh lý theo giá từ oracle
+- Hỗ trợ nhiều reserve với các tham số rủi ro riêng: `ltv`, `liquidationThreshold`, `liquidationBonus`, `reserveFactor`
 
-## Current Scope
+## Repo layout
 
-Phiên bản hiện tại dành cho demo kỹ thuật:
+- `contract/`: smart contracts, scripts deploy local, và tests Hardhat
+- `frontend/`: giao diện React + TypeScript + Vite
+- `docs/`: tài liệu nghiệp vụ, API, deploy và testing
 
-- Đã có full unit tests cho core flow và liquidation
-- Hỗ trợ mock oracle để mô phỏng price move
-- Chưa phải bản production/mainnet
+## Prerequisites
 
-## Project Structure
+- Node.js 20+ khuyến nghị
+- npm
 
-- `contract/`: smart contracts + hardhat tests
-- `docs/`: tài liệu rút gọn, đồng bộ theo code hiện tại
-- `frontend/`: giao diện (nếu dùng cho demo)
+## Contract quick start
 
-## Quick Start
+Từ thư mục `contract`:
 
 ```bash
-cd contract
 npm install
 npx hardhat test
 ```
 
-## Testnet Demo Flow
+## Local Hardhat flow
 
-1. Deploy `MockPriceOracle` và `LendingPool`
-2. Deploy token wrappers (`AToken`, `VariableDebtToken`) cho mỗi reserve
-3. `initReserve` + `setPrice`
-4. Chạy kịch bản: deposit -> borrow -> price drop -> liquidate
+Để frontend đọc được dữ liệu local, cần chạy đúng thứ tự sau:
+
+1. Mở một terminal và chạy Hardhat node:
+
+```bash
+cd contract
+npx hardhat node
+```
+
+2. Mở terminal khác và deploy lên mạng `localhost`:
+
+```bash
+cd contract
+npm run deploy:local
+```
+
+3. Đồng bộ địa chỉ deploy local vào frontend nếu cần:
+
+- `frontend/src/config/contracts.ts`
+- `frontend/src/config/deploy_local.txt`
+
+4. Chạy frontend:
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+## Local addresses
+
+Sau khi deploy local, các địa chỉ thường được ghi trong:
+
+- `frontend/src/config/deploy_local.txt`
+
+Trong repo hiện tại, frontend mặc định đang trỏ tới `LendingPool` local đã deploy.
+
+## Frontend notes
+
+- Frontend dùng `wagmi` + `viem`
+- Network local đang cấu hình cho Hardhat chain (`31337`) với RPC `http://127.0.0.1:8545`
+- Nếu chưa chạy `hardhat node`, frontend sẽ không lấy được dữ liệu on-chain
 
 ## Documentation
 
-- `docs/README.md`
-- `docs/PROTOCOL.md`
-- `docs/CONTRACT_API.md`
-- `docs/TESTNET_DEPLOY.md`
-- `docs/TESTING.md`
-- `docs/LIMITATIONS.md`
+- [docs/README.md](docs/README.md)
+- [docs/PROTOCOL.md](docs/PROTOCOL.md)
+- [docs/CONTRACT_API.md](docs/CONTRACT_API.md)
+- [docs/TESTNET_DEPLOY.md](docs/TESTNET_DEPLOY.md)
+- [docs/TESTING.md](docs/TESTING.md)
+- [docs/LIMITATIONS.md](docs/LIMITATIONS.md)
+
+## Quick checklist
+
+- `contract` test pass
+- `hardhat node` đang chạy
+- deploy local bằng `--network localhost`
+- frontend trỏ đúng chain và address
+- wallet đang ở chain `31337`

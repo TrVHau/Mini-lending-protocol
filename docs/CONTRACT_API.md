@@ -61,10 +61,27 @@
 
 ## 2. View Functions
 
-- `getReserveIndexes(asset)`
-- `getReserveAddresses(asset)`
+- `getReserveList()`
+- `getReserveCount()`
+- `getReserveAt(index)`
+- `getReserveData(asset)`
 - `getHealthFactor(user)`
 - `getUserAccountData(user)`
+
+`getReserveData(asset)` trả về:
+
+- `aToken`
+- `debtToken`
+- `assetDecimals`
+- `isActive`
+- `isFrozen`
+- `ltvBps`
+- `liquidationThresholdBps`
+- `liquidationBonusBps`
+- `reserveFactorBps`
+- `liquidityIndexRay`
+- `borrowIndexRay`
+- `lastUpdateTimestamp`
 
 ## 3. Admin Function
 
