@@ -43,12 +43,14 @@ Sau deploy, lưu lại:
 
 - địa chỉ `MockPriceOracle`
 - địa chỉ `LendingPool`
+- địa chỉ `DefaultInterestRateStrategy`
 - địa chỉ từng `AToken` và `VariableDebtToken`
 
 ## 4. Khởi tạo reserve
 
 Gọi `initReserve` cho từng asset muốn demo, với tham số mẫu:
 
+- `interestRateStrategy = <DefaultInterestRateStrategy address>`
 - `ltvBps = 8000`
 - `liquidationThresholdBps = 8500`
 - `liquidationBonusBps = 10500`

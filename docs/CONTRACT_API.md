@@ -65,6 +65,8 @@
 - `getReserveCount()`
 - `getReserveAt(index)`
 - `getReserveData(asset)`
+- `getReserveRates(asset)`
+- `getReserveInterestRateStrategy(asset)`
 - `getHealthFactor(user)`
 - `getUserAccountData(user)`
 
@@ -88,6 +90,7 @@
 ### `initReserve(...)`
 
 - Chỉ owner.
+- Nhận `interestRateStrategy` cho từng reserve.
 - Validate tham số risk:
   - `ltvBps <= liquidationThresholdBps <= 10000`
   - `liquidationBonusBps` trong `[10000, 12000]`

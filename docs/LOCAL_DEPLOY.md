@@ -41,6 +41,16 @@ const LendingPool = await ethers.getContractFactory("LendingPool");
 const pool = await LendingPool.deploy(oracle.target, deployer.address);
 await pool.waitForDeployment();
 
+// Deploy interest rate strategy (annual WAD rates, optimal utilization in RAY)
+const InterestRateStrategy = await ethers.getContractFactory("DefaultInterestRateStrategy");
+const interestRateStrategy = await InterestRateStrategy.deploy(
+  0,
+  ethers.parseUnits("0.04", 18),
+  ethers.parseUnits("0.75", 18),
+  ethers.parseUnits("0.8", 27),
+);
+await interestRateStrategy.waitForDeployment();
+
 // Deploy mock assets
 const MockERC20 = await ethers.getContractFactory("MockERC20");
 const weth = await MockERC20.deploy("Wrapped Ether", "WETH", 18);
@@ -68,6 +78,7 @@ await pool.initReserve(
   weth.target,
   aWETH.target,
   dWETH.target,
+  interestRateStrategy.target,
   18,
   7500,
   8000,
@@ -79,6 +90,7 @@ await pool.initReserve(
   dai.target,
   aDAI.target,
   dDAI.target,
+  interestRateStrategy.target,
   18,
   8000,
   8500,
@@ -96,6 +108,7 @@ await dai.mint(user.address, ethers.parseUnits("10000", 18));
 
 console.log("Oracle:", oracle.target);
 console.log("LendingPool:", pool.target);
+console.log("InterestRateStrategy:", interestRateStrategy.target);
 console.log(
   "WETH:",
   weth.target,
@@ -133,4 +146,4 @@ await oracle.setPrice(weth.target, ethers.parseUnits("1000", 8));
 
 - `PRICE_DECIMALS = 8` in `MockPriceOracle`, so use `ethers.parseUnits(value, 8)`.
 - Update frontend config with the deployed addresses.
-- If you add more assets, repeat: deploy token + aToken + debtToken + `initReserve` + `setPrice`.
+- If you add more assets, repeat: deploy token + aToken + debtToken + pass the strategy to `initReserve` + `setPrice`.

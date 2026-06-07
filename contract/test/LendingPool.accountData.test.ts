@@ -10,6 +10,7 @@ describe("LendingPool - accountData", function () {
   let pool: any;
   let aToken: any;
   let debtToken: any;
+  let interestRateStrategy: any;
 
   const DECIMALS = 8;
   const ONE = ethers.parseUnits("1", DECIMALS);
@@ -30,6 +31,16 @@ describe("LendingPool - accountData", function () {
       await owner.getAddress(),
     );
 
+    const InterestRateStrategy = await ethers.getContractFactory(
+      "DefaultInterestRateStrategy",
+    );
+    interestRateStrategy = await InterestRateStrategy.deploy(
+      0,
+      ethers.parseUnits("0.04", 18),
+      ethers.parseUnits("0.75", 18),
+      ethers.parseUnits("0.8", 27),
+    );
+
     const AToken = await ethers.getContractFactory("AToken");
     aToken = await AToken.deploy(
       await pool.getAddress(),
@@ -48,6 +59,7 @@ describe("LendingPool - accountData", function () {
       await asset.getAddress(),
       await aToken.getAddress(),
       await debtToken.getAddress(),
+      await interestRateStrategy.getAddress(),
       DECIMALS,
       8000,
       8500,
@@ -106,6 +118,7 @@ describe("LendingPool - accountData", function () {
       await otherAsset.getAddress(),
       await otherAToken.getAddress(),
       await otherDebtToken.getAddress(),
+      await interestRateStrategy.getAddress(),
       DECIMALS,
       params?.ltvBps ?? 8000,
       params?.liquidationThresholdBps ?? 8500,
@@ -191,13 +204,18 @@ describe("LendingPool - accountData", function () {
 
     const data = await pool.getUserAccountData(await alice.getAddress());
     const expectedCollateral = ethers.parseUnits("200", 18);
-    const expectedDebt = ethers.parseUnits("60", 18);
+    // Debt may be slightly above $60 due to interest accrual across multiple blocks.
+    // We verify it is at least $60 and at most $60.01 (generous tolerance).
+    const debtFloor = ethers.parseUnits("60", 18);
+    const debtCeil = ethers.parseUnits("60.01", 18);
     const expectedMaxBorrow = ethers.parseUnits("160", 18);
-    const expectedHealthFactor = (ethers.parseUnits("170", 18) * WAD) / expectedDebt;
 
     expect(data.collateralUsdWad).to.equal(expectedCollateral);
-    expect(data.debtUsdWad).to.equal(expectedDebt);
+    expect(data.debtUsdWad).to.be.gte(debtFloor);
+    expect(data.debtUsdWad).to.be.lte(debtCeil);
     expect(data.maxBorrowUsdWad).to.equal(expectedMaxBorrow);
-    expect(data.healthFactorWad).to.equal(expectedHealthFactor);
+    // Health factor = liquidation threshold collateral / debt ~ 170/60
+    expect(data.healthFactorWad).to.be.lte((ethers.parseUnits("170", 18) * WAD) / debtFloor);
+    expect(data.healthFactorWad).to.be.gte((ethers.parseUnits("170", 18) * WAD) / debtCeil);
   });
 });

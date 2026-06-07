@@ -10,6 +10,7 @@ describe("LendingPool", function () {
   let pool: any;
   let aToken: any;
   let debtToken: any;
+  let interestRateStrategy: any;
 
   const DECIMALS = 8;
   const ONE = ethers.parseUnits("1", DECIMALS);
@@ -27,6 +28,16 @@ describe("LendingPool", function () {
     pool = await LendingPool.deploy(
       await oracle.getAddress(),
       await owner.getAddress(),
+    );
+
+    const InterestRateStrategy = await ethers.getContractFactory(
+      "DefaultInterestRateStrategy",
+    );
+    interestRateStrategy = await InterestRateStrategy.deploy(
+      0,
+      ethers.parseUnits("0.04", 18),
+      ethers.parseUnits("0.75", 18),
+      ethers.parseUnits("0.8", 27),
     );
 
     const ATokenFactory = await ethers.getContractFactory("AToken");
@@ -48,6 +59,7 @@ describe("LendingPool", function () {
       await asset.getAddress(),
       await aToken.getAddress(),
       await debtToken.getAddress(),
+      await interestRateStrategy.getAddress(),
       DECIMALS,
       8000,
       8500,
@@ -330,7 +342,77 @@ describe("LendingPool", function () {
     });
   });
 
+  describe("interest rates", function () {
+    it("keeps rates at zero while there is no debt", async function () {
+      const amount = ethers.parseUnits("100", DECIMALS);
+
+      await asset.connect(alice).approve(await pool.getAddress(), amount);
+      await pool.connect(alice).deposit(await asset.getAddress(), amount);
+
+      const rates = await pool.getReserveRates(await asset.getAddress());
+      expect(rates.liquidityRateRayPerSecond).to.equal(0n);
+      expect(rates.borrowRateRayPerSecond).to.equal(0n);
+    });
+
+    it("updates rates after borrow and accrues both indexes over time", async function () {
+      const liquidityAmount = ethers.parseUnits("500", DECIMALS);
+      const collateralAmount = ethers.parseUnits("100", DECIMALS);
+      const borrowAmount = ethers.parseUnits("50", DECIMALS);
+      const triggerDepositAmount = ethers.parseUnits("1", DECIMALS);
+      const assetAddress = await asset.getAddress();
+      const aliceAddress = await alice.getAddress();
+
+      await setupAliceDebt(liquidityAmount, collateralAmount, borrowAmount);
+
+      const rates = await pool.getReserveRates(assetAddress);
+      expect(rates.liquidityRateRayPerSecond).to.be.gt(0n);
+      expect(rates.borrowRateRayPerSecond).to.be.gt(0n);
+
+      const before = await pool.getReserveData(assetAddress);
+      await ethers.provider.send("evm_increaseTime", [365 * 24 * 60 * 60]);
+      await ethers.provider.send("evm_mine", []);
+
+      await asset.connect(bob).approve(await pool.getAddress(), triggerDepositAmount);
+      await pool.connect(bob).deposit(assetAddress, triggerDepositAmount);
+
+      const after = await pool.getReserveData(assetAddress);
+      const debtAfter = await debtToken.balanceOfWithIndex(
+        aliceAddress,
+        after.borrowIndexRay,
+      );
+
+      expect(after.liquidityIndexRay).to.be.gt(before.liquidityIndexRay);
+      expect(after.borrowIndexRay).to.be.gt(before.borrowIndexRay);
+      expect(debtAfter).to.be.gt(borrowAmount);
+    });
+
+    it("sets rates back to zero after all debt is repaid", async function () {
+      const liquidityAmount = ethers.parseUnits("500", DECIMALS);
+      const collateralAmount = ethers.parseUnits("100", DECIMALS);
+      const borrowAmount = ethers.parseUnits("50", DECIMALS);
+      const assetAddress = await asset.getAddress();
+
+      await setupAliceDebt(liquidityAmount, collateralAmount, borrowAmount);
+
+      await ethers.provider.send("evm_increaseTime", [30 * 24 * 60 * 60]);
+      await ethers.provider.send("evm_mine", []);
+
+      await asset.connect(alice).approve(await pool.getAddress(), ethers.MaxUint256);
+      await pool.connect(alice).repay(assetAddress, ethers.MaxUint256);
+
+      const rates = await pool.getReserveRates(assetAddress);
+      expect(rates.liquidityRateRayPerSecond).to.equal(0n);
+      expect(rates.borrowRateRayPerSecond).to.equal(0n);
+    });
+  });
+
   describe("admin and reserve config", function () {
+    it("stores the reserve interest rate strategy", async function () {
+      expect(
+        await pool.getReserveInterestRateStrategy(await asset.getAddress()),
+      ).to.equal(await interestRateStrategy.getAddress());
+    });
+
     it("non-owner cannot init reserve", async function () {
       const { otherAsset, otherAToken, otherDebtToken } =
         await createSecondaryReserveTokens();
@@ -342,6 +424,7 @@ describe("LendingPool", function () {
             await otherAsset.getAddress(),
             await otherAToken.getAddress(),
             await otherDebtToken.getAddress(),
+            await interestRateStrategy.getAddress(),
             DECIMALS,
             8000,
             8500,
@@ -357,6 +440,7 @@ describe("LendingPool", function () {
           await asset.getAddress(),
           await aToken.getAddress(),
           await debtToken.getAddress(),
+          await interestRateStrategy.getAddress(),
           DECIMALS,
           8000,
           8500,
@@ -364,6 +448,25 @@ describe("LendingPool", function () {
           1000,
         ),
       ).to.be.revertedWith("RESERVE_EXISTS");
+    });
+
+    it("rejects zero interest rate strategy", async function () {
+      const { otherAsset, otherAToken, otherDebtToken } =
+        await createSecondaryReserveTokens();
+
+      await expect(
+        pool.initReserve(
+          await otherAsset.getAddress(),
+          await otherAToken.getAddress(),
+          await otherDebtToken.getAddress(),
+          ethers.ZeroAddress,
+          DECIMALS,
+          8000,
+          8500,
+          10500,
+          1000,
+        ),
+      ).to.be.revertedWith("STRATEGY_ZERO");
     });
 
     it("rejects invalid ltv configuration", async function () {
@@ -375,6 +478,7 @@ describe("LendingPool", function () {
           await otherAsset.getAddress(),
           await otherAToken.getAddress(),
           await otherDebtToken.getAddress(),
+          await interestRateStrategy.getAddress(),
           DECIMALS,
           8600,
           8500,
@@ -393,6 +497,7 @@ describe("LendingPool", function () {
           await otherAsset.getAddress(),
           await otherAToken.getAddress(),
           await otherDebtToken.getAddress(),
+          await interestRateStrategy.getAddress(),
           DECIMALS,
           8000,
           8500,
@@ -406,6 +511,7 @@ describe("LendingPool", function () {
           await otherAsset.getAddress(),
           await otherAToken.getAddress(),
           await otherDebtToken.getAddress(),
+          await interestRateStrategy.getAddress(),
           DECIMALS,
           8000,
           8500,

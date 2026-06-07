@@ -84,8 +84,15 @@ contract AToken is IAToken {
         require(user != address(0), "USER_ZERO");
         require(amount > 0, "INVALID_AMOUNT");
         require(liquidityIndexRay >= RAY, "INDEX_TOO_LOW");
-        scaledAmount = amount.divRayDown(liquidityIndexRay);
-        require(_scaledBalances[user] >= scaledAmount, "BURN_EXCEEDS_BALANCE");
+        uint256 scaledBalance = _scaledBalances[user];
+        require(scaledBalance > 0, "BURN_EXCEEDS_BALANCE");
+        uint256 currentBalance = scaledBalance.mulRayDown(liquidityIndexRay);
+        require(amount <= currentBalance, "BURN_EXCEEDS_BALANCE");
+        if (amount == currentBalance) {
+            scaledAmount = scaledBalance;
+        } else {
+            scaledAmount = amount.divRayDown(liquidityIndexRay);
+        }
         _scaledBalances[user] -= scaledAmount;
         _scaledTotalSupply -= scaledAmount;
     }
