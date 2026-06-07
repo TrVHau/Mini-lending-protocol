@@ -301,7 +301,8 @@ contract LendingPool is ILendingPool, Ownable {
         require(address(col.aToken) != address(0), "COLLATERAL_RESERVE_NOT_FOUND");
         require(address(dbt.aToken) != address(0), "DEBT_RESERVE_NOT_FOUND");
         require(col.isActive && dbt.isActive, "RESERVE_INACTIVE");
-        require(!col.isFrozen && !dbt.isFrozen, "RESERVE_FROZEN");
+        // NOTE: Liquidation must work even on frozen reserves to maintain protocol solvency.
+        // isFrozen only blocks new deposits/borrows, not liquidations.
 
         _updateReserve(collateralAsset);
         if (debtAsset != collateralAsset) _updateReserve(debtAsset);
@@ -469,22 +470,14 @@ contract LendingPool is ILendingPool, Ownable {
         r.liquidityIndexRay = _currentLiquidityIndex(r);
         r.borrowIndexRay = _currentBorrowIndex(r);
         r.lastUpdateTimestamp = currentTimestamp;
-
-        emit ReserveUpdated(
-            asset,
-            r.liquidityIndexRay,
-            r.borrowIndexRay,
-            r.liquidityRateRayPerSecond,
-            r.borrowRateRayPerSecond,
-            currentTimestamp
-        );
     }
 
     // -------------------------------------------------------------------------
     // Internal — Interest Rate Updates
     // -------------------------------------------------------------------------
 
-    /// @dev Recalculates interest rates based on current utilization and stores them.
+    /// @dev Recalculates interest rates based on current utilization, stores them,
+    ///      and emits the ReserveUpdated event with the new rates.
     ///      Must be called after every action that changes liquidity or debt.
     function _updateInterestRates(address asset, ReserveData storage r) internal {
         uint256 availableLiquidity = IERC20(asset).balanceOf(address(r.aToken));
@@ -499,6 +492,15 @@ contract LendingPool is ILendingPool, Ownable {
 
         r.liquidityRateRayPerSecond = newLiquidityRate;
         r.borrowRateRayPerSecond = newBorrowRate;
+
+        emit ReserveUpdated(
+            asset,
+            r.liquidityIndexRay,
+            r.borrowIndexRay,
+            newLiquidityRate,
+            newBorrowRate,
+            r.lastUpdateTimestamp
+        );
     }
 
     // -------------------------------------------------------------------------
@@ -506,8 +508,9 @@ contract LendingPool is ILendingPool, Ownable {
     // -------------------------------------------------------------------------
 
     /// @dev Computes aggregated account data across all reserves for `user`.
-    ///      Uses stored (checkpoint) indexes — callers must have called _updateReserve()
-    ///      first for the values to be up-to-date during state-changing flows.
+    ///      Uses live (current-block) indexes via `_currentLiquidityIndex` /
+    ///      `_currentBorrowIndex` so that cross-reserve risk checks are accurate
+    ///      even if some reserves haven't been touched recently.
     function _computeUserAccountData(address user) internal view returns (
         uint256 collateralUsdWad,
         uint256 debtUsdWad,
@@ -519,8 +522,8 @@ contract LendingPool is ILendingPool, Ownable {
             address asset = _reserveList[i];
             ReserveData storage r = _reserves[asset];
 
-            uint256 collateralAmount = r.aToken.balanceOfWithIndex(user, r.liquidityIndexRay);
-            uint256 debtAmount = r.variableDebtToken.balanceOfWithIndex(user, r.borrowIndexRay);
+            uint256 collateralAmount = r.aToken.balanceOfWithIndex(user, _currentLiquidityIndex(r));
+            uint256 debtAmount = r.variableDebtToken.balanceOfWithIndex(user, _currentBorrowIndex(r));
 
             // Skip reserves where the user has no position — avoids requiring oracle price
             // for assets the user has never interacted with.
@@ -541,21 +544,17 @@ contract LendingPool is ILendingPool, Ownable {
     // -------------------------------------------------------------------------
 
     /// @dev Returns the liquidity index accrued to the current block (read-only).
+    ///      Uses `accrueIndexLinearRay` for overflow-safe 512-bit `rate * dt`.
     function _currentLiquidityIndex(ReserveData storage r) internal view returns (uint256) {
-        if (r.liquidityRateRayPerSecond == 0) return r.liquidityIndexRay;
         uint256 dt = uint256(uint40(block.timestamp)) - uint256(r.lastUpdateTimestamp);
-        if (dt == 0) return r.liquidityIndexRay;
-        uint256 delta = r.liquidityIndexRay.mulRayDown(r.liquidityRateRayPerSecond * dt);
-        return r.liquidityIndexRay + delta;
+        return MathUtils.accrueIndexLinearRay(r.liquidityIndexRay, r.liquidityRateRayPerSecond, dt);
     }
 
     /// @dev Returns the borrow index accrued to the current block (read-only).
+    ///      Uses `accrueIndexLinearRay` for overflow-safe 512-bit `rate * dt`.
     function _currentBorrowIndex(ReserveData storage r) internal view returns (uint256) {
-        if (r.borrowRateRayPerSecond == 0) return r.borrowIndexRay;
         uint256 dt = uint256(uint40(block.timestamp)) - uint256(r.lastUpdateTimestamp);
-        if (dt == 0) return r.borrowIndexRay;
-        uint256 delta = r.borrowIndexRay.mulRayDown(r.borrowRateRayPerSecond * dt);
-        return r.borrowIndexRay + delta;
+        return MathUtils.accrueIndexLinearRay(r.borrowIndexRay, r.borrowRateRayPerSecond, dt);
     }
 
     // -------------------------------------------------------------------------
