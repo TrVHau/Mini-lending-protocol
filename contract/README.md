@@ -40,3 +40,4 @@ npm run deploy:local
 
 - The local deploy script prints the deployed addresses for the oracle, pool, assets, and token wrappers.
 - Use those addresses to update the frontend config when you redeploy.
+- Contract glossary: [GLOSSARY.html](GLOSSARY.html).

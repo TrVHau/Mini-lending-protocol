@@ -76,12 +76,13 @@ Trong repo hiện tại, frontend mặc định đang trỏ tới `LendingPool` 
 
 ## Documentation
 
-- [docs/README.md](docs/README.md)
-- [docs/PROTOCOL.md](docs/PROTOCOL.md)
-- [docs/CONTRACT_API.md](docs/CONTRACT_API.md)
-- [docs/TESTNET_DEPLOY.md](docs/TESTNET_DEPLOY.md)
-- [docs/TESTING.md](docs/TESTING.md)
-- [docs/LIMITATIONS.md](docs/LIMITATIONS.md)
+- [docs/PROTOCOL.html](docs/PROTOCOL.html)
+- [docs/CONTRACT_API.html](docs/CONTRACT_API.html)
+- [docs/LOCAL_DEPLOY.html](docs/LOCAL_DEPLOY.html)
+- [docs/TESTNET_DEPLOY.html](docs/TESTNET_DEPLOY.html)
+- [docs/TESTING.html](docs/TESTING.html)
+- [docs/LIMITATIONS.html](docs/LIMITATIONS.html)
+- [contract/GLOSSARY.html](contract/GLOSSARY.html)
 
 ## Quick checklist
 

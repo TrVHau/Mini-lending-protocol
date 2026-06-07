@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Glossary - Mini Lending Protocol</title>
+  <style>
+:root { color-scheme: light dark; --bg: #f8fafc; --fg: #111827; --muted: #64748b; --panel: #ffffff; --border: #dbe3ef; --code: #eef2f7; --accent: #2563eb; }
+    @media (prefers-color-scheme: dark) { :root { --bg: #0f172a; --fg: #e5e7eb; --muted: #94a3b8; --panel: #111827; --border: #263244; --code: #1e293b; --accent: #60a5fa; } }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.65 system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    main { width: min(920px, calc(100% - 32px)); margin: 48px auto; padding: 36px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; }
+    h1, h2, h3 { line-height: 1.25; margin: 1.6em 0 0.55em; }
+    h1 { margin-top: 0; font-size: 2rem; }
+    h2 { font-size: 1.35rem; border-top: 1px solid var(--border); padding-top: 1.2rem; }
+    h3 { font-size: 1.05rem; }
+    p { margin: 0.85rem 0; }
+    ul, ol { padding-left: 1.45rem; margin: 0.7rem 0 1rem; }
+    li { margin: 0.25rem 0; }
+    code { background: var(--code); padding: 0.15rem 0.35rem; border-radius: 5px; font-family: ui-monospace, SFMono-Regular, Consolas, "Liberation Mono", monospace; font-size: 0.92em; }
+    pre { overflow-x: auto; padding: 1rem; background: var(--code); border-radius: 8px; border: 1px solid var(--border); }
+    pre code { background: transparent; padding: 0; border-radius: 0; }
+    a { color: var(--accent); text-decoration-thickness: 0.08em; text-underline-offset: 0.18em; }
+    hr { border: 0; border-top: 1px solid var(--border); margin: 1.5rem 0; }
+    .meta { color: var(--muted); font-size: 0.9rem; margin-bottom: 1.5rem; }
+  </style>
+</head>
+<body>
+  <main>
+    <div class="meta">Mini Lending Protocol / contract/GLOSSARY.html</div>
+<h1>Glossary - Mini Lending Protocol</h1>
+<h2>A</h2>
+<h2><code>aToken</code></h2>
+<p>Token kế toán đại diện cho phần <strong>collateral/liquidity đã gửi</strong> vào protocol. <code>aToken</code> trong dự án này là token nội bộ, pool gọi <code>mint/burn</code> để cập nhật số dư scaled.</p>
+<h2><code>asset</code></h2>
+<p>Tài sản gốc (underlying), ví dụ DAI/USDC mock ERC20.</p>
+<hr>
+<h2>B</h2>
+<h2><code>BPS</code> (Basis Points)</h2>
+<p>Đơn vị phần trăm theo basis points:</p>
+<ul>
+<li><code>10000 bps = 100%</code></li>
+<li><code>100 bps = 1%</code></li>
+</ul>
+<p>Ví dụ:</p>
+<ul>
+<li><code>ltvBps = 8000</code> nghĩa là 80%</li>
+<li><code>liquidationThresholdBps = 8500</code> nghĩa là 85%</li>
+</ul>
+<h2><code>borrow</code></h2>
+<p>Hành động vay underlying từ reserve. User phải có collateral và không vượt quá giới hạn LTV.</p>
+<h2><code>borrowIndexRay</code></h2>
+<p>Chỉ số nợ tích lũy (đơn vị RAY), dùng để quy đổi giữa scaled debt và nominal debt.</p>
+<hr>
+<h2>C</h2>
+<h2><code>collateral</code></h2>
+<p>Tài sản user gửi vào để bảo đảm cho khoản vay.</p>
+<h2><code>collateralUsdWad</code></h2>
+<p>Giá trị collateral quy đổi sang USD, đơn vị WAD (1e18).</p>
+<hr>
+<h2>D</h2>
+<h2><code>debtToken</code> / <code>VariableDebtToken</code></h2>
+<p>Token kế toán đại diện cho phần nợ. Số dư lưu ở dạng scaled.</p>
+<h2><code>debtUsdWad</code></h2>
+<p>Giá trị nợ quy đổi USD, đơn vị WAD.</p>
+<h2><code>deposit</code></h2>
+<p>User chuyển underlying vào reserve, đổi lại nhận <code>aToken</code> scaled.</p>
+<hr>
+<h2>H</h2>
+<h2><code>health factor</code> (<code>healthFactorWad</code>)</h2>
+<p>Chỉ số an toàn vị thế:</p>
+<p><code>healthFactor = liquidationThresholdUsd / debtUsd</code></p>
+<ul>
+<li><code>&gt; 1</code>: vị thế an toàn</li>
+<li><code>= 1</code>: sát ngưỡng</li>
+<li><code>&lt; 1</code>: có thể bị thanh lý (khi liquidation implement)</li>
+</ul>
+<p>Nếu user chưa có nợ (<code>debtUsd = 0</code>) thì trả <code>MaxUint256</code>.</p>
+<hr>
+<h2>I</h2>
+<h2><code>initReserve</code></h2>
+<p>Hàm owner dùng để khởi tạo reserve cho một asset:</p>
+<ul>
+<li>gắn <code>aToken</code>, <code>debtToken</code></li>
+<li>cấu hình risk params (<code>ltv</code>, <code>liquidationThreshold</code>, ...)</li>
+<li>set index ban đầu.</li>
+</ul>
+<hr>
+<h2>L</h2>
+<h2><code>liquidity</code></h2>
+<p>Underlying hiện có trong reserve và có thể cho vay.</p>
+<h2><code>liquidityIndexRay</code></h2>
+<p>Chỉ số lãi phía cung cấp thanh khoản (RAY), dùng quy đổi scaled aToken sang nominal balance.</p>
+<h2><code>liquidation</code></h2>
+<p>Cơ chế đóng bớt nợ của vị thế nguy hiểm (<code>HF &lt; 1</code>) và tịch biên collateral theo bonus. Trong code hiện tại: hàm <code>liquidate(...)</code> đã có trong interface nhưng đang <code>NOT_IMPLEMENTED</code>.</p>
+<h2><code>liquidationBonusBps</code></h2>
+<p>Phần thưởng thêm cho liquidator khi thanh lý (đơn vị bps).</p>
+<h2><code>liquidationThresholdBps</code></h2>
+<p>Ngưỡng dùng để tính health factor. Thường cao hơn hoặc bằng LTV.</p>
+<h2><code>LTV</code> (<code>ltvBps</code>)</h2>
+<p>Loan-to-Value: tỷ lệ tối đa được vay trên giá trị collateral.</p>
+<p><code>maxBorrowUsd = collateralUsd * ltvBps / 10000</code></p>
+<hr>
+<h2>O</h2>
+<h2><code>oracle</code></h2>
+<p>Nguồn giá để quy đổi asset -&gt; USD.</p>
+<h2><code>PRICE_DECIMALS</code></h2>
+<p>Số chữ số thập phân của giá oracle (mock hiện tại là <code>8</code>).</p>
+<hr>
+<h2>R</h2>
+<h2><code>RAY</code></h2>
+<p>Đơn vị fixed-point <code>1e27</code>, dùng cho interest index.</p>
+<h2><code>repay</code></h2>
+<p>Trả nợ. Protocol burn debt token và chuyển underlying trả về reserve.</p>
+<h2><code>reserve</code></h2>
+<p>Một “pool con” theo từng asset, gồm:</p>
+<ul>
+<li><code>aToken</code></li>
+<li><code>debtToken</code></li>
+<li>index</li>
+<li>risk params</li>
+<li>trạng thái active/frozen.</li>
+</ul>
+<h2><code>reserveFactorBps</code></h2>
+<p>Thông số dự trữ của reserve (chưa dùng sâu trong business logic hiện tại).</p>
+<hr>
+<h2>S</h2>
+<h2><code>scaled balance</code></h2>
+<p>Số dư đã scale theo index để tránh cập nhật từng block cho mọi user. Nominal balance được tính động theo công thức:</p>
+<p><code>nominal = scaled * index</code></p>
+<h2><code>SafeERC20</code></h2>
+<p>Thư viện OpenZeppelin giúp transfer ERC20 an toàn hơn.</p>
+<hr>
+<h2>U</h2>
+<h2><code>underlying</code></h2>
+<p>Token gốc thực tế được chuyển qua lại (khác với token kế toán như aToken/debtToken).</p>
+<h2><code>update reserve</code> (<code>_updateReserve</code>)</h2>
+<p>Bước bắt buộc trước các hành động state-changing để cập nhật index theo thời gian.</p>
+<hr>
+<h2>W</h2>
+<h2><code>WAD</code></h2>
+<p>Đơn vị fixed-point <code>1e18</code>, dùng cho giá trị tiền tệ USD trong protocol (<code>*_UsdWad</code>).</p>
+<h2><code>withdraw</code></h2>
+<p>Rút underlying khỏi collateral (burn aToken trước rồi mới chuyển underlying ra ngoài).</p>
+  </main>
+</body>
+</html>
