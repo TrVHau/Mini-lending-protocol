@@ -2,6 +2,13 @@
 
 :root {
   color-scheme: dark;
+  --app-bg: #020617;
+  --panel-bg: rgba(15, 23, 42, 0.72);
+  --panel-border: rgba(51, 65, 85, 0.74);
+  --accent-primary: #67e8f9;
+  --accent-positive: #6ee7b7;
+  --accent-warning: #fcd34d;
+  --accent-danger: #fca5a5;
 }
 
 html,
@@ -20,6 +27,19 @@ body {
     BlinkMacSystemFont,
     "Segoe UI",
     sans-serif;
-  background: #020617;
+  background:
+    radial-gradient(circle at 12% 0%, rgba(20, 184, 166, 0.14), transparent 30rem),
+    radial-gradient(circle at 88% 12%, rgba(56, 189, 248, 0.12), transparent 28rem),
+    var(--app-bg);
   color: #e2e8f0;
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+::selection {
+  background: rgba(103, 232, 249, 0.28);
 }

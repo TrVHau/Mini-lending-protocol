@@ -14,6 +14,7 @@ export { default as useUserReserveData } from "./contract/useUserReserveData";
 export { default as useHealthFactor } from "./contract/useHealthFactor";
 export { default as useTokenBalance } from "./contract/useTokenBalance";
 export { default as useAllowance } from "./contract/useAllowance";
+export { default as useAssetPrice } from "./contract/useAssetPrice";
 
 export { default as useApprove } from "./write/useApprove";
 export { default as useDeposit } from "./write/useDeposit";
@@ -21,3 +22,4 @@ export { default as useWithdraw } from "./write/useWithdraw";
 export { default as useBorrow } from "./write/useBorrow";
 export { default as useRepay } from "./write/useRepay";
 export { default as useLiquidate } from "./write/useLiquidate";
+export { default as useMintMockToken } from "./write/useMintMockToken";

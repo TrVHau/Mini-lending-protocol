@@ -1,17 +1,16 @@
-// ActionModal: form Deposit / Withdraw / Borrow / Repay cho 1 asset.
-// Hỗ trợ approve flow: kiểm tra allowance → approve trước → rồi mới execute.
-
 import { useEffect, useState } from "react";
 import { useAccount } from "wagmi";
 import {
   useAllowance,
+  useAssetPrice,
   useApprove,
-  useDeposit,
-  useWithdraw,
   useBorrow,
+  useDeposit,
   useRepay,
   useTokenBalance,
+  useUserAccountData,
   useUserReserveData,
+  useWithdraw,
 } from "../hooks";
 import { LENDING_POOL_ADDRESS } from "../config/contracts";
 
@@ -28,18 +27,30 @@ interface Props {
 }
 
 const LABEL: Record<ActionType, string> = {
-  deposit: "Nạp",
-  withdraw: "Rút",
-  borrow: "Vay",
-  repay: "Trả nợ",
+  deposit: "Supply",
+  withdraw: "Withdraw",
+  borrow: "Borrow",
+  repay: "Repay",
+};
+
+const BALANCE_LABEL: Record<ActionType, string> = {
+  deposit: "Wallet balance",
+  withdraw: "Supplied balance",
+  borrow: "Available to borrow",
+  repay: "Borrow balance",
 };
 
 const ACTION_COLOR: Record<ActionType, string> = {
-  deposit: "bg-emerald-500 hover:bg-emerald-600",
-  withdraw: "bg-amber-500 hover:bg-amber-600",
-  borrow: "bg-blue-500 hover:bg-blue-600",
-  repay: "bg-purple-500 hover:bg-purple-600",
+  deposit: "bg-emerald-400 text-slate-950 hover:bg-emerald-300",
+  withdraw: "bg-slate-700 text-slate-50 hover:bg-slate-600",
+  borrow: "bg-cyan-400 text-slate-950 hover:bg-cyan-300",
+  repay: "bg-slate-700 text-slate-50 hover:bg-slate-600",
 };
+
+const WAD = 1e18;
+const WAD_BIG = 10n ** 18n;
+const MAX_UINT =
+  "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
 function parseAmount(raw: string, decimals: number): bigint {
   try {
@@ -59,12 +70,32 @@ function formatAmount(raw: bigint, decimals: number): string {
   return `${int}.${frac.toString().padStart(decimals, "0").replace(/0+$/, "")}`;
 }
 
+function formatHealthFactor(hf?: bigint): string {
+  if (!hf) return "--";
+  if (hf === BigInt(MAX_UINT)) return "Max";
+  return (Number(hf) / WAD).toFixed(2);
+}
+
+function usdWadToAssetAmount(
+  usdWad: bigint,
+  priceWad: bigint,
+  decimals: number,
+) {
+  if (priceWad === 0n) return 0n;
+
+  const amountWad = (usdWad * WAD_BIG) / priceWad;
+  if (decimals === 18) return amountWad;
+  if (decimals < 18) return amountWad / 10n ** BigInt(18 - decimals);
+  return amountWad * 10n ** BigInt(decimals - 18);
+}
+
 export default function ActionModal({
   isOpen,
   onClose,
   assetAddress,
   assetSymbol,
   assetDecimals,
+  aTokenAddress,
   action,
 }: Props) {
   const { address } = useAccount();
@@ -75,11 +106,15 @@ export default function ActionModal({
 
   const amountBig = rawInput ? parseAmount(rawInput, assetDecimals) : 0n;
 
-  // ---- Read data ----
+  const { accountData } = useUserAccountData(address);
   const { balance: walletBalance } = useTokenBalance(address, assetAddress);
+  const { balance: reserveLiquidity } = useTokenBalance(
+    action === "borrow" ? aTokenAddress : null,
+    action === "borrow" ? assetAddress : null,
+  );
   const { userReserveData } = useUserReserveData(address, assetAddress);
+  const { priceWad } = useAssetPrice(assetAddress);
 
-  // Allowance chỉ cần cho deposit & repay (cần transferFrom token vào pool)
   const needsApproval = action === "deposit" || action === "repay";
   const { allowance, isLoading: allowanceLoading } = useAllowance(
     needsApproval ? address : null,
@@ -87,7 +122,6 @@ export default function ActionModal({
     needsApproval ? assetAddress : null,
   );
 
-  // ---- Write hooks ----
   const approve = useApprove(assetAddress, LENDING_POOL_ADDRESS, amountBig);
   const deposit = useDeposit(assetAddress, amountBig);
   const withdraw = useWithdraw(assetAddress, amountBig);
@@ -96,12 +130,22 @@ export default function ActionModal({
 
   const actionHook = { deposit, withdraw, borrow, repay }[action];
 
-  // ---- State transitions ----
+  function executeAction() {
+    const fn = {
+      deposit: deposit.deposit,
+      withdraw: withdraw.withdraw,
+      borrow: borrow.borrow,
+      repay: repay.repay,
+    }[action];
+    fn();
+  }
+
   useEffect(() => {
     if (approve.isSuccess && step === "approving") {
       setStep("executing");
+      executeAction();
     }
-  }, [approve.isSuccess, step]);
+  });
 
   useEffect(() => {
     if (actionHook.isSuccess && step === "executing") {
@@ -109,7 +153,6 @@ export default function ActionModal({
     }
   }, [actionHook.isSuccess, step]);
 
-  // Reset when modal reopens
   useEffect(() => {
     if (isOpen) {
       setRawInput("");
@@ -131,16 +174,11 @@ export default function ActionModal({
     if (needsApproval && !isApproved) {
       setStep("approving");
       approve.approve();
-    } else {
-      setStep("executing");
-      const fn = {
-        deposit: deposit.deposit,
-        withdraw: withdraw.withdraw,
-        borrow: borrow.borrow,
-        repay: repay.repay,
-      }[action];
-      fn();
+      return;
     }
+
+    setStep("executing");
+    executeAction();
   }
 
   function handleClose() {
@@ -150,13 +188,32 @@ export default function ActionModal({
   }
 
   const maxAmount = (() => {
-    if (action === "deposit" || action === "withdraw" || action === "repay") {
-      if (action === "deposit" && walletBalance !== null)
-        return formatAmount(walletBalance as bigint, assetDecimals);
-      if (action === "withdraw" && userReserveData)
-        return formatAmount(userReserveData.collateralAmount, assetDecimals);
-      if (action === "repay" && userReserveData)
-        return formatAmount(userReserveData.debtAmount, assetDecimals);
+    if (action === "deposit" && walletBalance !== null) {
+      return formatAmount(walletBalance as bigint, assetDecimals);
+    }
+    if (action === "withdraw" && userReserveData) {
+      return formatAmount(userReserveData.collateralAmount, assetDecimals);
+    }
+    if (action === "repay" && userReserveData) {
+      return formatAmount(userReserveData.debtAmount, assetDecimals);
+    }
+    if (action === "borrow" && accountData && priceWad !== undefined) {
+      const availableBorrowUsdWad =
+        accountData.maxBorrowUsdWad > accountData.debtUsdWad
+          ? accountData.maxBorrowUsdWad - accountData.debtUsdWad
+          : 0n;
+      const borrowCapacity = usdWadToAssetAmount(
+        availableBorrowUsdWad,
+        priceWad,
+        assetDecimals,
+      );
+      const liquidity = reserveLiquidity as bigint | null;
+      const maxBorrow =
+        liquidity !== null && liquidity < borrowCapacity
+          ? liquidity
+          : borrowCapacity;
+
+      return formatAmount(maxBorrow, assetDecimals);
     }
     return null;
   })();
@@ -171,25 +228,28 @@ export default function ActionModal({
   const txError = step === "approving" ? approve.error : actionHook.error;
 
   const btnLabel = () => {
-    if (step === "done") return "✓ Thành công!";
-    if (step === "approving")
-      return approve.isConfirming ? "Đang xác nhận approve…" : "Đang approve…";
-    if (step === "executing")
-      return actionHook.isConfirming ? "Đang xác nhận giao dịch…" : "Đang gửi…";
+    if (step === "done") return "Transaction complete";
+    if (step === "approving") {
+      return approve.isConfirming ? "Confirming approval..." : "Approving...";
+    }
+    if (step === "executing") {
+      return actionHook.isConfirming
+        ? "Confirming transaction..."
+        : "Submitting...";
+    }
     if (!isApproved) return `Approve ${assetSymbol}`;
     return `${LABEL[action]} ${assetSymbol}`;
   };
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 px-4 backdrop-blur-sm"
       onClick={handleClose}
     >
       <div
-        className="w-full max-w-md rounded-2xl border border-slate-700 bg-slate-900 p-6 shadow-2xl"
-        onClick={(e) => e.stopPropagation()}
+        className="w-full max-w-md rounded-lg border border-slate-700 bg-slate-950 p-6 shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
       >
-        {/* Header */}
         <div className="mb-5 flex items-center justify-between">
           <h2 className="text-lg font-semibold text-slate-50">
             {LABEL[action]}{" "}
@@ -197,62 +257,53 @@ export default function ActionModal({
           </h2>
           <button
             onClick={handleClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-100"
+            aria-label="Close modal"
           >
-            ✕
+            X
           </button>
         </div>
 
         {step === "done" ? (
           <div className="flex flex-col items-center gap-4 py-6 text-center">
-            <div className="flex h-16 w-16 items-center justify-center rounded-full bg-emerald-500/20 text-3xl">
-              ✓
+            <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-400/15 text-2xl font-semibold text-emerald-300">
+              OK
             </div>
-            <p className="text-lg font-semibold text-emerald-400">
-              Giao dịch thành công!
+            <p className="text-lg font-semibold text-emerald-300">
+              Transaction submitted successfully.
             </p>
             <button
               onClick={handleClose}
-              className="mt-2 rounded-lg bg-slate-800 px-6 py-2 text-sm text-slate-200 hover:bg-slate-700"
+              className="mt-2 rounded-lg bg-slate-800 px-6 py-2 text-sm text-slate-200 transition-colors hover:bg-slate-700"
             >
-              Đóng
+              Close
             </button>
           </div>
         ) : (
           <>
-            {/* Balance info */}
-            <div className="mb-4 flex items-center justify-between rounded-lg bg-slate-800/60 px-4 py-2 text-xs text-slate-400">
-              <span>
-                {action === "deposit"
-                  ? "Số dư ví"
-                  : action === "withdraw"
-                    ? "Collateral"
-                    : action === "repay"
-                      ? "Nợ hiện tại"
-                      : "Có thể vay"}
-              </span>
+            <div className="mb-4 flex items-center justify-between rounded-lg bg-slate-900 px-4 py-2 text-xs text-slate-400">
+              <span>{BALANCE_LABEL[action]}</span>
               <span className="font-mono text-slate-200">
                 {maxAmount ?? "--"} {assetSymbol}
               </span>
             </div>
 
-            {/* Input */}
-            <div className="mb-2 flex items-center overflow-hidden rounded-xl border border-slate-700 bg-slate-800 focus-within:border-blue-500">
+            <div className="mb-2 flex items-center overflow-hidden rounded-lg border border-slate-700 bg-slate-900 focus-within:border-cyan-400">
               <input
                 type="number"
                 min="0"
                 step="any"
                 placeholder="0.00"
                 value={rawInput}
-                onChange={(e) => setRawInput(e.target.value)}
-                className="flex-1 bg-transparent px-4 py-3 text-lg font-semibold text-slate-50 outline-none placeholder:text-slate-600"
+                onChange={(event) => setRawInput(event.target.value)}
+                className="min-w-0 flex-1 bg-transparent px-4 py-3 text-lg font-semibold text-slate-50 outline-none placeholder:text-slate-600"
               />
               <div className="flex items-center gap-2 pr-4">
                 {maxAmount && (
                   <button
                     type="button"
                     onClick={() => setRawInput(maxAmount)}
-                    className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-300 hover:bg-slate-600"
+                    className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-300 transition-colors hover:bg-slate-600"
                   >
                     MAX
                   </button>
@@ -263,35 +314,42 @@ export default function ActionModal({
               </div>
             </div>
 
-            {/* Approve progress indicator */}
-            {needsApproval && amountBig > 0n && !isApproved && (
-              <div className="mb-3 flex items-center gap-2 rounded-lg bg-amber-900/30 border border-amber-700/50 px-3 py-2 text-xs text-amber-300">
-                <span>⚠</span>
-                <span>
-                  Cần approve trước khi {LABEL[action].toLowerCase()}. 2 bước:
-                  Approve → {LABEL[action]}.
+            <div className="mb-3 rounded-lg border border-slate-800 bg-slate-900/70 p-3">
+              <div className="flex items-center justify-between text-xs text-slate-500">
+                <span>Health factor</span>
+                <span className="text-slate-400">Before - After</span>
+              </div>
+              <div className="mt-2 flex items-center justify-between text-sm font-semibold">
+                <span className="text-slate-100">
+                  {formatHealthFactor(accountData?.healthFactorWad)}
                 </span>
+                <span className="text-slate-500">to</span>
+                <span className="text-cyan-300">Updates on-chain</span>
+              </div>
+            </div>
+
+            {needsApproval && amountBig > 0n && !isApproved && (
+              <div className="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
+                This action needs token approval before the transaction.
               </div>
             )}
 
-            {/* Error */}
             {txError && (
-              <div className="mb-3 rounded-lg bg-red-900/30 border border-red-700/50 px-3 py-2 text-xs text-red-300">
-                {txError.message?.split("(")[0] ?? "Giao dịch thất bại"}
+              <div className="mb-3 rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs text-red-200">
+                {txError.message?.split("(")[0] ?? "Transaction failed"}
               </div>
             )}
 
-            {/* Submit */}
             <button
               onClick={handleSubmit}
               disabled={
                 amountBig === 0n || isPending || (step as string) === "done"
               }
-              className={`mt-3 w-full rounded-xl py-3 text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-40 ${ACTION_COLOR[action]}`}
+              className={`mt-3 w-full rounded-lg py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${ACTION_COLOR[action]}`}
             >
               {isPending ? (
                 <span className="flex items-center justify-center gap-2">
-                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
                   {btnLabel()}
                 </span>
               ) : (
