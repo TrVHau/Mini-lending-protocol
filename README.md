@@ -183,13 +183,6 @@ npm run build
 | Web3 frontend    | wagmi, viem, TanStack Query                |
 | Styling          | Tailwind CSS                               |
 
-## Why This Repo Is Good for a Blockchain Intern Portfolio
-
-- It shows protocol-level thinking, not just simple NFT or token demos.
-- It includes the full loop: contracts, tests, deployment, and frontend integration.
-- It demonstrates understanding of lending mechanics such as collateralization, health factors, and liquidation.
-- It gives you concrete material to explain tradeoffs, limitations, and risk controls in an interview.
-
 ## Repository Status
 
 This project is best treated as a polished MVP:
