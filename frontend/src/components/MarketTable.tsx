@@ -16,15 +16,6 @@ function formatApy(value: number | undefined): string {
   return `${value.toFixed(value < 0.01 ? 4 : 2)}%`;
 }
 
-function borrowedAmount(totalDeposits?: bigint, availableLiquidity?: bigint) {
-  if (totalDeposits === undefined || availableLiquidity === undefined) {
-    return undefined;
-  }
-  return totalDeposits > availableLiquidity
-    ? totalDeposits - availableLiquidity
-    : 0n;
-}
-
 function MarketTable() {
   const {
     reserves,
@@ -121,11 +112,6 @@ function MarketTable() {
                 const name =
                   meta?.name ?? `${asset.slice(0, 6)}...${asset.slice(-4)}`;
                 const decimals = Number(reserve?.assetDecimals ?? 18);
-                const totalBorrowed = borrowedAmount(
-                  stats?.totalDeposits,
-                  stats?.availableLiquidity,
-                );
-
                 const ltv =
                   reserve?.ltvBps !== undefined
                     ? `${(Number(reserve.ltvBps) / 100).toFixed(0)}%`
@@ -179,7 +165,7 @@ function MarketTable() {
                     </td>
 
                     <td className="border-b border-slate-800/70 px-5 py-4 text-sm text-slate-200">
-                      {formatToken(totalBorrowed, decimals)}{" "}
+                      {formatToken(stats?.totalBorrowed, decimals)}{" "}
                       <span className="text-xs text-slate-500">{symbol}</span>
                     </td>
 

@@ -5,6 +5,7 @@ import {
   ERC20_ABI,
   LENDING_POOL_ABI,
   LENDING_POOL_ADDRESS,
+  VARIABLE_DEBT_TOKEN_ABI,
 } from "../../config/contracts";
 
 const RAY = 1e27;
@@ -61,6 +62,7 @@ type TokenMetaMap = Record<`0x${string}`, TokenMeta>;
 type MarketStats = {
   availableLiquidity: bigint;
   totalDeposits: bigint;
+  totalBorrowed: bigint;
 };
 
 type MarketStatsMap = Record<`0x${string}`, MarketStats>;
@@ -184,11 +186,18 @@ function useMarketOverview() {
     ]);
   }, [reserves]);
 
-  const statsCalls = useMemo(() => {
+  const statsCallAssets = useMemo(() => {
     if (!reserves.length || !reserveDataByAsset) return [];
-    return reserves.flatMap((asset) => {
+    return reserves.filter((asset) => {
       const reserve = reserveDataByAsset[asset];
-      if (!reserve?.aToken) return [];
+      return !!reserve?.aToken && !!reserve?.debtToken;
+    });
+  }, [reserves, reserveDataByAsset]);
+
+  const statsCalls = useMemo(() => {
+    if (!statsCallAssets.length || !reserveDataByAsset) return [];
+    return statsCallAssets.flatMap((asset) => {
+      const reserve = reserveDataByAsset[asset];
       return [
         {
           address: asset,
@@ -202,9 +211,15 @@ function useMarketOverview() {
           functionName: "totalSupplyWithIndex",
           args: [reserve.liquidityIndexRay],
         },
+        {
+          address: reserve.debtToken,
+          abi: VARIABLE_DEBT_TOKEN_ABI,
+          functionName: "totalSupplyWithIndex",
+          args: [reserve.borrowIndexRay],
+        },
       ];
     });
-  }, [reserves, reserveDataByAsset]);
+  }, [statsCallAssets, reserveDataByAsset]);
 
   const metaQuery = useReadContracts({
     contracts: metaCalls,
@@ -250,18 +265,25 @@ function useMarketOverview() {
       return typed.result as bigint;
     };
 
-    for (let i = 0; i < reserves.length; i++) {
-      const asset = reserves[i];
+    for (let i = 0; i < statsCallAssets.length; i++) {
+      const asset = statsCallAssets[i];
       const reserve = reserveDataByAsset[asset];
       if (!reserve?.aToken) continue;
-      const availableLiquidity = getResult(statsQuery.data[i * 2]);
-      const totalDeposits = getResult(statsQuery.data[i * 2 + 1]);
-      if (availableLiquidity === null || totalDeposits === null) continue;
-      map[asset] = { availableLiquidity, totalDeposits };
+      const availableLiquidity = getResult(statsQuery.data[i * 3]);
+      const totalDeposits = getResult(statsQuery.data[i * 3 + 1]);
+      const totalBorrowed = getResult(statsQuery.data[i * 3 + 2]);
+      if (
+        availableLiquidity === null ||
+        totalDeposits === null ||
+        totalBorrowed === null
+      ) {
+        continue;
+      }
+      map[asset] = { availableLiquidity, totalDeposits, totalBorrowed };
     }
 
     return map;
-  }, [statsQuery.data, reserves, reserveDataByAsset]);
+  }, [statsQuery.data, statsCallAssets, reserveDataByAsset]);
 
   const isLoading =
     listQuery.isLoading ||

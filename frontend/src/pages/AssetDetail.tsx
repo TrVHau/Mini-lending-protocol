@@ -36,15 +36,6 @@ function formatBps(value: bigint | undefined) {
   return `${(Number(value) / 100).toFixed(0)}%`;
 }
 
-function borrowedAmount(totalDeposits?: bigint, availableLiquidity?: bigint) {
-  if (totalDeposits === undefined || availableLiquidity === undefined) {
-    return undefined;
-  }
-  return totalDeposits > availableLiquidity
-    ? totalDeposits - availableLiquidity
-    : 0n;
-}
-
 function StatCard({
   label,
   value,
@@ -99,10 +90,7 @@ function AssetDetail() {
   const name = meta?.name ?? `${asset.slice(0, 8)}...${asset.slice(-4)}`;
   const decimals = Number(reserveData?.assetDecimals ?? 18);
   const totalDeposits = stats?.totalDeposits;
-  const totalBorrowed = borrowedAmount(
-    totalDeposits,
-    stats?.availableLiquidity,
-  );
+  const totalBorrowed = stats?.totalBorrowed;
   const utilization =
     totalDeposits !== undefined &&
     totalDeposits > 0n &&
