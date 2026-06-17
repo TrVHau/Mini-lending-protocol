@@ -1,40 +1,42 @@
 # Mini Lending Protocol
 
-A compact Aave-inspired lending protocol for local and testnet demonstrations. The project includes Solidity contracts, a Hardhat test/deploy workspace, and a React dashboard for interacting with reserves, user positions, and liquidations.
+A compact Aave-inspired lending protocol for local and testnet demos. The repository combines Solidity smart contracts, a Hardhat test and deployment workspace, and a React dashboard for interacting with reserves, positions, and liquidations.
 
-This repository is built for learning, demos, and protocol engineering practice. It is not production-ready mainnet software.
+This is a protocol MVP for learning, interviews, demos, and engineering practice. It is intentionally smaller than a production lending market and should not be treated as audited mainnet software.
 
-## Highlights
+## What This Project Demonstrates
 
-- Multi-reserve lending pool with per-asset risk parameters.
+- Multi-reserve lending with per-asset risk parameters.
 - Deposit, withdraw, borrow, repay, and liquidation flows.
 - Scaled accounting through `AToken` and `VariableDebtToken`.
 - Live liquidity and borrow indexes using RAY precision (`1e27`).
-- Pluggable utilization-based interest rate strategy.
-- Mock price oracle and mock ERC20 assets for deterministic local demos.
-- React + TypeScript frontend connected to a local Hardhat chain through `wagmi` and `viem`.
+- A pluggable utilization-based interest rate strategy.
+- Mock oracle and mock ERC20 assets for deterministic local demos.
+- A React + TypeScript frontend connected to a local Hardhat chain through `wagmi` and `viem`.
 
-## Architecture
+## Repository Layout
 
 ```text
 Mini-lending-protocol/
 ├── contract/     Solidity contracts, Hardhat config, scripts, tests
-├── frontend/     React + TypeScript + Vite application
-└── docs/         HTML protocol, API, deploy, testing, and limitations docs
+├── frontend/     React + TypeScript + Vite app
+└── docs/         Protocol, API, deploy, testing, and limitations docs
 ```
+
+## Architecture
 
 ### Contract Layer
 
 Core contracts live in `contract/contracts`:
 
 - `core/LendingPool.sol` coordinates deposits, borrows, repayments, withdrawals, reserve updates, health-factor checks, and liquidations.
-- `tokens/AToken.sol` stores scaled supplier balances and transfers reserve underlying.
-- `tokens/VariableDebtToken.sol` stores scaled variable-debt balances.
-- `interest/DefaultInterestRateStrategy.sol` calculates supply and borrow rates from utilization using a two-slope jump-rate model.
+- `tokens/AToken.sol` tracks supplier balances and handles reserve ownership accounting.
+- `tokens/VariableDebtToken.sol` tracks variable debt balances.
+- `interest/DefaultInterestRateStrategy.sol` implements a two-slope jump-rate model.
 - `oracle/MockPriceOracle.sol` provides demo USD prices.
 - `libraries/MathUtils.sol` provides WAD/RAY/BPS arithmetic and index accrual helpers.
 
-Reserve configuration includes:
+Each reserve is configured with:
 
 - `ltvBps`
 - `liquidationThresholdBps`
@@ -44,14 +46,13 @@ Reserve configuration includes:
 
 ### Frontend Layer
 
-The frontend is a Vite app in `frontend/` with routes for:
+The frontend lives in `frontend/` and provides views for:
 
-- `/` landing page
-- `/dashboard` account and market overview
-- `/markets` reserve list
-- `/asset/:address` asset detail and user actions
-- `/position` user reserve positions
-- `/liquidation` liquidation helper view
+- landing and overview screens
+- reserve market list
+- asset detail and user actions
+- account and position summaries
+- liquidation helper flow
 
 Contract reads and writes are organized under `frontend/src/hooks`.
 
@@ -63,7 +64,7 @@ Contract reads and writes are organized under `frontend/src/hooks`.
 
 ## Quick Start
 
-Install and test the contracts:
+### 1. Install and test the contracts
 
 ```bash
 cd contract
@@ -71,21 +72,23 @@ npm install
 npm test
 ```
 
-Start a local chain:
+### 2. Start a local Hardhat chain
 
 ```bash
 cd contract
 npx hardhat node
 ```
 
-In a second terminal, deploy the demo environment:
+### 3. Deploy the demo environment
+
+In a second terminal:
 
 ```bash
 cd contract
 npm run deploy:local
 ```
 
-Start the frontend:
+### 4. Start the frontend
 
 ```bash
 cd frontend
@@ -105,7 +108,7 @@ The local deploy script creates:
 - mock WETH and DAI assets
 - `AToken` and `VariableDebtToken` wrappers for each reserve
 
-After redeploying, update frontend addresses if needed:
+If you redeploy, update the frontend configuration if addresses change:
 
 - `frontend/src/config/contracts.ts`
 - `frontend/src/config/deploy_local.txt`
@@ -120,12 +123,21 @@ The frontend currently reads `LENDING_POOL_ADDRESS` from `frontend/src/config/co
 4. Deposit collateral.
 5. Borrow an available asset.
 6. Inspect account data and health factor.
-7. Change mock oracle prices or use prepared test scenarios to make a position liquidatable.
-8. Execute liquidation and verify debt/collateral changes.
+7. Adjust mock oracle prices or use test scenarios to make a position liquidatable.
+8. Execute liquidation and verify debt and collateral changes.
 
 ## Testing
 
-Contract tests cover:
+### Contract tests
+
+Run:
+
+```bash
+cd contract
+npm test
+```
+
+The test suite covers:
 
 - reserve initialization and risk-parameter validation
 - deposit, withdraw, borrow, and repay flows
@@ -135,14 +147,7 @@ Contract tests cover:
 - jump-rate strategy behavior
 - liquidation edge cases, including partial liquidation and collateral caps
 
-Run:
-
-```bash
-cd contract
-npm test
-```
-
-Frontend checks:
+### Frontend checks
 
 ```bash
 cd frontend
@@ -164,26 +169,33 @@ npm run build
 
 - The oracle is a mock oracle.
 - No production governance, pause guardian, or emergency admin process is included.
-- No supply caps, borrow caps, or production risk engine.
-- Contracts are for demo and education; they have not been audited.
+- No supply caps, borrow caps, or production risk engine is included.
+- The contracts are for demo and education and have not been audited.
 - Frontend configuration is local-chain focused by default.
 
 ## Tech Stack
 
-| Area | Stack |
-| --- | --- |
-| Smart contracts | Solidity `^0.8.24`, OpenZeppelin Contracts |
+| Area             | Stack                                      |
+| ---------------- | ------------------------------------------ |
+| Smart contracts  | Solidity `^0.8.24`, OpenZeppelin Contracts |
 | Contract tooling | Hardhat, ethers v6, TypeScript, Mocha/Chai |
-| Frontend | React, TypeScript, Vite |
-| Web3 frontend | wagmi, viem, TanStack Query |
-| Styling | Tailwind CSS |
+| Frontend         | React, TypeScript, Vite                    |
+| Web3 frontend    | wagmi, viem, TanStack Query                |
+| Styling          | Tailwind CSS                               |
+
+## Why This Repo Is Good for a Blockchain Intern Portfolio
+
+- It shows protocol-level thinking, not just simple NFT or token demos.
+- It includes the full loop: contracts, tests, deployment, and frontend integration.
+- It demonstrates understanding of lending mechanics such as collateralization, health factors, and liquidation.
+- It gives you concrete material to explain tradeoffs, limitations, and risk controls in an interview.
 
 ## Repository Status
 
-This project is best treated as a protocol MVP:
+This project is best treated as a polished MVP:
 
-- strong enough for local/testnet demos,
+- strong enough for local and testnet demos,
 - readable enough for learning and review,
 - intentionally smaller than a production lending market.
 
-Before any real deployment, add production-grade oracle integration, role separation, monitoring, cap controls, invariant/fuzz tests, and an independent security review.
+Before any real deployment, add production-grade oracle integration, role separation, monitoring, cap controls, invariant and fuzz tests, and an independent security review.
