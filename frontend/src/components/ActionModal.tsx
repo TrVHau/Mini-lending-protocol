@@ -100,11 +100,18 @@ export default function ActionModal({
 }: Props) {
   const { address } = useAccount();
   const [rawInput, setRawInput] = useState("");
+  const [isMaxRepay, setIsMaxRepay] = useState(false);
   const [step, setStep] = useState<
     "input" | "approving" | "executing" | "done"
   >("input");
 
-  const amountBig = rawInput ? parseAmount(rawInput, assetDecimals) : 0n;
+  // When repaying the full balance, send uint256.max so the contract uses the
+  // live borrow index — not our stale cached debt amount. This ensures
+  // per-second interest that accrued between the read and the tx is included.
+  const MAX_UINT256 = 2n ** 256n - 1n;
+  const parsedInput = rawInput ? parseAmount(rawInput, assetDecimals) : 0n;
+  const amountBig =
+    isMaxRepay && action === "repay" ? MAX_UINT256 : parsedInput;
 
   const { accountData } = useUserAccountData(address);
   const { balance: walletBalance } = useTokenBalance(address, assetAddress);
@@ -122,7 +129,14 @@ export default function ActionModal({
     needsApproval ? assetAddress : null,
   );
 
-  const approve = useApprove(assetAddress, LENDING_POOL_ADDRESS, amountBig);
+  // For max-repay: approve the displayed debt amount so MetaMask shows a sane
+  // value, while the repay tx itself sends uint256.max to cover any dust interest.
+  const approveAmount =
+    isMaxRepay && action === "repay" && userReserveData
+      ? userReserveData.debtAmount
+      : parsedInput;
+
+  const approve = useApprove(assetAddress, LENDING_POOL_ADDRESS, approveAmount);
   const deposit = useDeposit(assetAddress, amountBig);
   const withdraw = useWithdraw(assetAddress, amountBig);
   const borrow = useBorrow(assetAddress, amountBig);
@@ -156,17 +170,20 @@ export default function ActionModal({
   useEffect(() => {
     if (isOpen) {
       setRawInput("");
+      setIsMaxRepay(false);
       setStep("input");
     }
   }, [isOpen]);
 
   if (!isOpen) return null;
 
+  // For max-repay, approve the displayed debt amount (not uint256.max) so the
+  // MetaMask prompt shows a sane value. The repay tx itself sends uint256.max.
   const isApproved =
     !needsApproval ||
     allowanceLoading ||
     allowance === null ||
-    (allowance as bigint) >= amountBig;
+    (allowance as bigint) >= approveAmount;
 
   function handleSubmit() {
     if (amountBig === 0n) return;
@@ -195,6 +212,7 @@ export default function ActionModal({
       return formatAmount(userReserveData.collateralAmount, assetDecimals);
     }
     if (action === "repay" && userReserveData) {
+      // Display the known debt; MAX button sends uint256.max under the hood
       return formatAmount(userReserveData.debtAmount, assetDecimals);
     }
     if (action === "borrow" && accountData && priceWad !== undefined) {
@@ -295,14 +313,20 @@ export default function ActionModal({
                 step="any"
                 placeholder="0.00"
                 value={rawInput}
-                onChange={(event) => setRawInput(event.target.value)}
+                onChange={(event) => {
+                  setRawInput(event.target.value);
+                  setIsMaxRepay(false); // manual edit cancels max-repay mode
+                }}
                 className="min-w-0 flex-1 bg-transparent px-4 py-3 text-lg font-semibold text-slate-50 outline-none placeholder:text-slate-600"
               />
               <div className="flex items-center gap-2 pr-4">
                 {maxAmount && (
                   <button
                     type="button"
-                    onClick={() => setRawInput(maxAmount)}
+                    onClick={() => {
+                      setRawInput(maxAmount);
+                      if (action === "repay") setIsMaxRepay(true);
+                    }}
                     className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-300 transition-colors hover:bg-slate-600"
                   >
                     MAX

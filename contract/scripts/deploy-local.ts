@@ -15,12 +15,14 @@ async function main() {
 
   // ── Interest Rate Strategy ────────────────────────────────────────────────
   // Jump-rate model: base=0%, slope1=4%, slope2=75% annual, Uopt=80%
-  const Strategy = await ethers.getContractFactory("DefaultInterestRateStrategy");
+  const Strategy = await ethers.getContractFactory(
+    "DefaultInterestRateStrategy",
+  );
   const strategy = await Strategy.deploy(
-    0,                                         // baseRateWad: 0%
-    ethers.parseUnits("0.04", 18),             // slope1Wad:   4% annual
-    ethers.parseUnits("0.75", 18),             // slope2Wad:   75% annual (jump)
-    ethers.parseUnits("0.8", 27),              // optimalUtilizationRay: 80%
+    0, // baseRateWad: 0%
+    ethers.parseUnits("0.04", 18), // slope1Wad:   4% annual
+    ethers.parseUnits("0.75", 18), // slope2Wad:   75% annual (jump)
+    ethers.parseUnits("0.8", 27), // optimalUtilizationRay: 80%
   );
   await strategy.waitForDeployment();
 
@@ -33,7 +35,8 @@ async function main() {
 
   // ── aTokens & Debt Tokens ─────────────────────────────────────────────────
   const AToken = await ethers.getContractFactory("AToken");
-  const VariableDebtToken = await ethers.getContractFactory("VariableDebtToken");
+  const VariableDebtToken =
+    await ethers.getContractFactory("VariableDebtToken");
 
   const aWETH = await AToken.deploy(pool.target, weth.target, 18);
   const dWETH = await VariableDebtToken.deploy(pool.target, weth.target, 18);
@@ -45,17 +48,17 @@ async function main() {
   await aDAI.waitForDeployment();
   await dDAI.waitForDeployment();
 
-  // ── Initialize Reserves ───────────────────────────────────────────────────
+  // Initialize Reserves
   await pool.initReserve(
-    weth.target,       // asset
-    aWETH.target,      // aToken
-    dWETH.target,      // debtToken
-    strategy.target,   // interestRateStrategy
-    18,                // assetDecimals
-    7500,              // ltvBps          = 75%
-    8000,              // liquidationThresholdBps = 80%
-    10500,             // liquidationBonusBps = 105% (5% bonus)
-    1000,              // reserveFactorBps = 10%
+    weth.target, // asset
+    aWETH.target, // aToken
+    dWETH.target, // debtToken
+    strategy.target, // interestRateStrategy
+    18, // assetDecimals
+    7500, // ltvBps          = 75%
+    8000, // liquidationThresholdBps = 80%
+    10500, // liquidationBonusBps = 105% (5% bonus)
+    1000, // reserveFactorBps = 10%
   );
 
   await pool.initReserve(
@@ -64,21 +67,33 @@ async function main() {
     dDAI.target,
     strategy.target,
     18,
-    8000,   // ltv 80%
-    8500,   // liq threshold 85%
-    10500,  // bonus 5%
-    1000,   // reserve factor 10%
+    8000, // ltv 80%
+    8500, // liq threshold 85%
+    10500, // bonus 5%
+    1000, // reserve factor 10%
   );
 
-  // ── Oracle Prices ─────────────────────────────────────────────────────────
+  // Oracle Prices
   await oracle.setPrice(weth.target, ethers.parseUnits("2000", 8)); // $2 000
-  await oracle.setPrice(dai.target, ethers.parseUnits("1", 8));     // $1
+  await oracle.setPrice(dai.target, ethers.parseUnits("1", 8)); // $1
 
-  // ── Seed User Balances ────────────────────────────────────────────────────
+  // send deployer some WETH and DAI to deposit into the pool
+  await weth.mint(deployer.address, ethers.parseUnits("100", 18));
+  await dai.mint(deployer.address, ethers.parseUnits("100000", 18));
+
+  // Approve LendingPool to spend deployer's WETH and DAI
+  await weth.approve(pool.target, ethers.parseUnits("100", 18));
+  await dai.approve(pool.target, ethers.parseUnits("100000", 18));
+
+  // Deposit WETH and DAI into the pool
+  await pool.deposit(weth.target, ethers.parseUnits("100", 18));
+  await pool.deposit(dai.target, ethers.parseUnits("100000", 18));
+
+  // Seed User Balances
   await weth.mint(user.address, ethers.parseUnits("10", 18));
   await dai.mint(user.address, ethers.parseUnits("10000", 18));
 
-  // ── Summary ───────────────────────────────────────────────────────────────
+  //  Summary
   console.log("Deployer:          ", deployer.address);
   console.log("User:              ", user.address);
   console.log("Oracle:            ", oracle.target);
