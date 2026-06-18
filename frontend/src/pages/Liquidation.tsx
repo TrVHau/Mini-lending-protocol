@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAccount } from "wagmi";
+import { useConnection as useAccount } from "wagmi";
 import Navbar from "../components/Navbar";
 import {
   useAllowance,

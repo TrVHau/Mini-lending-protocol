@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
-import { useAccount } from "wagmi";
+import { useConnection as useAccount } from "wagmi";
 import ActionModal, { type ActionType } from "../components/ActionModal";
 import Navbar from "../components/Navbar";
 import {

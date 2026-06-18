@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { useAccount } from "wagmi";
+import { useConnection as useAccount } from "wagmi";
 import {
   useAllowance,
   useAssetPrice,
@@ -159,23 +159,32 @@ export default function ActionModal({
 
   useEffect(() => {
     if (approve.isSuccess && step === "approving") {
-      setStep("executing");
-      executeAction();
+      const tid = window.setTimeout(() => {
+        setStep("executing");
+        executeAction();
+      }, 0);
+      return () => clearTimeout(tid);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [approve.isSuccess, step]);
 
   useEffect(() => {
     if (actionHook.isSuccess && step === "executing") {
-      setStep("done");
+      const tid = window.setTimeout(() => {
+        setStep("done");
+      }, 0);
+      return () => clearTimeout(tid);
     }
   }, [actionHook.isSuccess, step]);
 
   useEffect(() => {
     if (isOpen) {
-      setRawInput("");
-      setIsMaxRepay(false);
-      setStep("input");
+      const tid = window.setTimeout(() => {
+        setRawInput("");
+        setIsMaxRepay(false);
+        setStep("input");
+      }, 0);
+      return () => clearTimeout(tid);
     }
   }, [isOpen]);
 
@@ -217,7 +226,12 @@ export default function ActionModal({
       // Display the known debt; MAX button sends uint256.max under the hood
       return formatAmount(userReserveData.debtAmount, assetDecimals);
     }
-    if (action === "borrow" && accountData && priceWad !== undefined && priceWad > 0n) {
+    if (
+      action === "borrow" &&
+      accountData &&
+      priceWad !== undefined &&
+      priceWad > 0n
+    ) {
       const availableBorrowUsdWad =
         accountData.maxBorrowUsdWad > accountData.debtUsdWad
           ? accountData.maxBorrowUsdWad - accountData.debtUsdWad

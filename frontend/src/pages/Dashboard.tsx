@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAccount } from "wagmi";
+import { useConnection as useAccount } from "wagmi";
 import AccountSummary from "../components/AccountSummary";
 import ActionModal, { type ActionType } from "../components/ActionModal";
 import Navbar from "../components/Navbar";

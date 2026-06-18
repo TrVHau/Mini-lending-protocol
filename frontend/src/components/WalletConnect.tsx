@@ -1,4 +1,4 @@
-import { useAccount, useConnect, useDisconnect } from "wagmi";
+import { useConnection as useAccount, useConnect, useDisconnect } from "wagmi";
 
 function WalletConnect() {
   const { address, isConnected } = useAccount();
