@@ -23,3 +23,4 @@ export { default as useBorrow } from "./write/useBorrow";
 export { default as useRepay } from "./write/useRepay";
 export { default as useLiquidate } from "./write/useLiquidate";
 export { default as useMintMockToken } from "./write/useMintMockToken";
+export { default as useInvalidateQueries } from "./useInvalidateQueries";

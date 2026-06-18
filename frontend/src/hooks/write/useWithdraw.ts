@@ -8,16 +8,20 @@
 // - LendingPool.withdraw(asset, amount).
 // Transform:
 // - Theo doi hash va trang thai confirm transaction.
+// - Invalidate all query caches on success so UI data refetches.
 // Return:
 // - { withdraw, hash, isPending, isSuccess, error }
 
+import { useEffect } from "react";
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { LENDING_POOL_ADDRESS, LENDING_POOL_ABI } from "../../config/contracts";
+import useInvalidateQueries from "../useInvalidateQueries";
 
 function useWithdraw(
   assetAddress: `0x${string}` | null | undefined,
   amount: bigint | null | undefined,
 ) {
+  const invalidate = useInvalidateQueries();
   const withdrawTx = useWriteContract();
 
   const hash = withdrawTx.data;
@@ -32,6 +36,10 @@ function useWithdraw(
       enabled: !!hash,
     },
   });
+
+  useEffect(() => {
+    if (isSuccess) invalidate();
+  }, [isSuccess]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const canWithdraw =
     !!assetAddress && amount !== null && amount !== undefined && amount > 0n;

@@ -8,16 +8,20 @@
 // - LendingPool.deposit(asset, amount).
 // Transform:
 // - Theo doi hash va trang thai confirm transaction.
+// - Invalidate all query caches on success so UI data refetches.
 // Return:
 // - { deposit, hash, isPending, isSuccess, error }
 
+import { useEffect } from "react";
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { LENDING_POOL_ADDRESS, LENDING_POOL_ABI } from "../../config/contracts";
+import useInvalidateQueries from "../useInvalidateQueries";
 
 function useDeposit(
   assetAddress: `0x${string}` | null | undefined,
   amount: bigint | null | undefined,
 ) {
+  const invalidate = useInvalidateQueries();
   const depositTx = useWriteContract();
 
   const hash = depositTx.data;
@@ -32,6 +36,10 @@ function useDeposit(
       enabled: !!hash,
     },
   });
+
+  useEffect(() => {
+    if (isSuccess) invalidate();
+  }, [isSuccess]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const canDeposit =
     !!assetAddress && amount !== null && amount !== undefined && amount > 0n;

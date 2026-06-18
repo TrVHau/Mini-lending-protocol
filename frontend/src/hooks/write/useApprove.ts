@@ -8,17 +8,21 @@
 // - ERC20.approve(spender, amount).
 // Transform:
 // - Theo doi hash va trang thai confirm transaction.
+// - Invalidate all query caches on success so allowance reads refetch.
 // Return:
 // - { approve, canApprove, hash, isPending, isConfirming, isSuccess, error }
 
+import { useEffect } from "react";
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { ERC20_ABI } from "../../config/contracts";
+import useInvalidateQueries from "../useInvalidateQueries";
 
 function useApprove(
   tokenAddress: `0x${string}` | null | undefined,
   spenderAddress: `0x${string}` | null | undefined,
   amount: bigint | null | undefined,
 ) {
+  const invalidate = useInvalidateQueries();
   const approveTx = useWriteContract();
 
   const hash = approveTx.data;
@@ -33,6 +37,10 @@ function useApprove(
       enabled: !!hash,
     },
   });
+
+  useEffect(() => {
+    if (isSuccess) invalidate();
+  }, [isSuccess]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const canApprove =
     !!tokenAddress &&

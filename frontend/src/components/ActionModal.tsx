@@ -55,8 +55,10 @@ const MAX_UINT =
 function parseAmount(raw: string, decimals: number): bigint {
   try {
     const [int, frac = ""] = raw.split(".");
+    const cleanInt = int === "" || int === "-" ? "0" : int;
     const fracPadded = frac.padEnd(decimals, "0").slice(0, decimals);
-    return BigInt(int + fracPadded);
+    const result = BigInt(cleanInt + fracPadded);
+    return result >= 0n ? result : 0n;
   } catch {
     return 0n;
   }
@@ -129,12 +131,13 @@ export default function ActionModal({
     needsApproval ? assetAddress : null,
   );
 
-  // For max-repay: approve the displayed debt amount so MetaMask shows a sane
-  // value, while the repay tx itself sends uint256.max to cover any dust interest.
+  // For max-repay we must approve MAX_UINT256, not the cached debtAmount.
+  // Reason: the contract's repay() calls transferFrom(user, aToken, liveDebt)
+  // where liveDebt includes per-second interest accrued AFTER the approve tx.
+  // If we approved only the cached amount, the transfer reverts with
+  // "ERC20: insufficient allowance" even though the user intended a full repay.
   const approveAmount =
-    isMaxRepay && action === "repay" && userReserveData
-      ? userReserveData.debtAmount
-      : parsedInput;
+    isMaxRepay && action === "repay" ? MAX_UINT256 : parsedInput;
 
   const approve = useApprove(assetAddress, LENDING_POOL_ADDRESS, approveAmount);
   const deposit = useDeposit(assetAddress, amountBig);
@@ -159,7 +162,8 @@ export default function ActionModal({
       setStep("executing");
       executeAction();
     }
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [approve.isSuccess, step]);
 
   useEffect(() => {
     if (actionHook.isSuccess && step === "executing") {
@@ -177,8 +181,6 @@ export default function ActionModal({
 
   if (!isOpen) return null;
 
-  // For max-repay, approve the displayed debt amount (not uint256.max) so the
-  // MetaMask prompt shows a sane value. The repay tx itself sends uint256.max.
   const isApproved =
     !needsApproval ||
     allowanceLoading ||
@@ -215,16 +217,24 @@ export default function ActionModal({
       // Display the known debt; MAX button sends uint256.max under the hood
       return formatAmount(userReserveData.debtAmount, assetDecimals);
     }
-    if (action === "borrow" && accountData && priceWad !== undefined) {
+    if (action === "borrow" && accountData && priceWad !== undefined && priceWad > 0n) {
       const availableBorrowUsdWad =
         accountData.maxBorrowUsdWad > accountData.debtUsdWad
           ? accountData.maxBorrowUsdWad - accountData.debtUsdWad
           : 0n;
-      const borrowCapacity = usdWadToAssetAmount(
+      if (availableBorrowUsdWad === 0n) return "0";
+
+      const borrowCapacityRaw = usdWadToAssetAmount(
         availableBorrowUsdWad,
         priceWad,
         assetDecimals,
       );
+      // Subtract 1 unit (smallest denomination) to avoid landing exactly on the
+      // collateral ceiling — the contract's _assetToUsdWad can round up by 1 wei,
+      // causing an INSUFFICIENT_COLLATERAL revert at the exact boundary.
+      const borrowCapacity =
+        borrowCapacityRaw > 1n ? borrowCapacityRaw - 1n : borrowCapacityRaw;
+
       const liquidity = reserveLiquidity as bigint | null;
       const maxBorrow =
         liquidity !== null && liquidity < borrowCapacity
