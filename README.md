@@ -157,12 +157,12 @@ npm run build
 
 ## Documentation
 
-- [Protocol Overview](docs/PROTOCOL.html)
-- [Contract API](docs/CONTRACT_API.html)
-- [Local Deploy Guide](docs/LOCAL_DEPLOY.html)
-- [Testnet Deploy Guide](docs/TESTNET_DEPLOY.html)
-- [Testing Guide](docs/TESTING.html)
-- [Current Limitations](docs/LIMITATIONS.html)
+- [Protocol Overview](docs/PROTOCOL.md)
+- [Contract API](docs/CONTRACT_API.md)
+- [Local Deploy Guide](docs/LOCAL_DEPLOY.md)
+- [Testnet Deploy Guide](docs/TESTNET_DEPLOY.md)
+- [Testing Guide](docs/TESTING.md)
+- [Current Limitations](docs/LIMITATIONS.md)
 - [Contract Glossary](contract/GLOSSARY.html)
 
 ## Important Limitations
