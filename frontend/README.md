@@ -6,7 +6,9 @@ React + TypeScript + Vite frontend for the Mini Lending Protocol.
 
 - Connects to the local Hardhat chain through `wagmi` + `viem`
 - Reads reserve list, reserve data, balances, and user account data from `LendingPool`
-- Shows market overview, asset detail, and approve -> deposit / borrow flows
+- Shows market overview, asset detail, and Aave-like supply / borrow / withdraw / repay flows
+- Uses ERC20 approval only where funds move from the wallet: supply and repay
+- Treats MAX consistently in the UI: wallet balance for supply, safe capacity for borrow, full balance or safe partial amount for withdraw, and full live debt for repay
 
 ## Install
 

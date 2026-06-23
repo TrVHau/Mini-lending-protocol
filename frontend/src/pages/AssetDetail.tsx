@@ -105,7 +105,7 @@ function AssetDetail() {
     disabled?: boolean;
   }[] = [
     {
-      action: "deposit",
+      action: "supply",
       label: "Supply",
       color: "bg-emerald-400 text-slate-950 hover:bg-emerald-300",
     },

@@ -179,6 +179,7 @@ contract LendingPool is ILendingPool, Ownable {
     }
 
     /// @inheritdoc ILendingPool
+    /// @dev Passing `type(uint256).max` as `amount` withdraws the full aToken balance.
     function withdraw(address asset, uint256 amount) external override {
         require(amount > 0, "INVALID_AMOUNT");
         ReserveData storage r = _reserves[asset];
@@ -186,6 +187,11 @@ contract LendingPool is ILendingPool, Ownable {
         require(r.isActive, "RESERVE_INACTIVE");
 
         _updateReserve(asset);
+
+        if (amount == type(uint256).max) {
+            amount = r.aToken.balanceOfWithIndex(msg.sender, r.liquidityIndexRay);
+        }
+        require(amount > 0, "INVALID_AMOUNT");
 
         uint256 scaledAmount = r.aToken.burn(msg.sender, amount, r.liquidityIndexRay);
         require(scaledAmount > 0, "BURN_FAILED");

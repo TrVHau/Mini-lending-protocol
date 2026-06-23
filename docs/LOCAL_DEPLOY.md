@@ -124,7 +124,8 @@ console.log("DAI:", dai.target, "aDAI:", aDAI.target, "dDAI:", dDAI.target);
 
 ## 3) Quick flow to verify (optional)
 
-In console, use `user` to approve and deposit:
+In console, use `user` to approve and supply. The Solidity function is still
+named `deposit`:
 
 ```js
 const userWeth = weth.connect(user);
@@ -147,6 +148,7 @@ await oracle.setPrice(weth.target, ethers.parseUnits("1000", 8));
 ## Notes
 
 - `PRICE_DECIMALS = 8` in `MockPriceOracle`, so use `ethers.parseUnits(value, 8)`.
+- `scripts/deploy-local.ts` seeds several demo users with supply/borrow positions; the manual console snippet above is the minimal setup path.
 - Update frontend config with the deployed addresses.
 
 ### Update frontend addresses

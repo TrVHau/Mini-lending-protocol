@@ -185,7 +185,7 @@ function MarketTable() {
                         <button
                           onClick={() =>
                             openModal(
-                              "deposit",
+                              "supply",
                               asset,
                               symbol,
                               decimals,

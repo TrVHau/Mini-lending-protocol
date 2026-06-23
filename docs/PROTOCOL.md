@@ -24,20 +24,25 @@ Giá tài sản lấy từ `IPriceOracle` theo chuẩn USD (`PRICE_DECIMALS`).
 1. `deposit(asset, amount)`
    - User chuyển underlying vào `aToken` reserve.
    - Pool mint `aToken` scaled cho user.
+   - Frontend `MAX` là exact wallet balance, không phải sentinel trong contract.
 
 2. `borrow(asset, amount)`
    - Pool kiểm tra thanh khoản reserve.
    - Pool tính `currentDebt + newDebt <= maxBorrow` theo dữ liệu toàn account.
    - Pool mint debt token và chuyển underlying ra cho user.
+   - Frontend `MAX` là borrowing capacity đã cap theo liquidity và round down nhẹ.
 
 3. `repay(asset, amount)`
    - Pool burn debt token theo phần trả thực tế (`min(amount, debt)`).
    - User chuyển underlying trả về reserve.
+   - Với full repay, caller có thể truyền `type(uint256).max`; pool sẽ cập nhật borrow index, đọc live debt, rồi chỉ thu đúng số nợ thực tế.
 
 4. `withdraw(asset, amount)`
    - Pool burn `aToken` của user.
+   - Nếu `amount == type(uint256).max`, pool resolve sang toàn bộ live aToken balance của user trước khi burn.
    - Nếu user còn debt, health factor sau rút phải >= 1.
    - Pool chuyển underlying cho user.
+   - Frontend `MAX` dùng `type(uint256).max` khi rút toàn bộ balance; nếu chỉ rút một phần an toàn vì còn debt, frontend gửi exact amount đã ước tính. Contract vẫn kiểm tra lại on-chain.
 
 5. `liquidate(collateralAsset, debtAsset, user, debtToCover)`
    - Chỉ chạy khi health factor của `user` < 1.

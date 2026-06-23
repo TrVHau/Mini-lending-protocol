@@ -197,6 +197,24 @@ describe("LendingPool", function () {
       expect(balanceAfter - balanceBefore).to.equal(withdrawAmount);
     });
 
+    it("withdraws the full aToken balance with MaxUint256", async function () {
+      const depositAmount = ethers.parseUnits("100", DECIMALS);
+      const aliceAddress = await alice.getAddress();
+      const assetAddress = await asset.getAddress();
+
+      await asset
+        .connect(alice)
+        .approve(await pool.getAddress(), depositAmount);
+      await pool.connect(alice).deposit(assetAddress, depositAmount);
+
+      const balanceBefore = await asset.balanceOf(aliceAddress);
+      await pool.connect(alice).withdraw(assetAddress, ethers.MaxUint256);
+      const balanceAfter = await asset.balanceOf(aliceAddress);
+
+      expect(balanceAfter - balanceBefore).to.equal(depositAmount);
+      expect(await aToken.scaledBalanceOf(aliceAddress)).to.equal(0n);
+    });
+
     it("reverts when withdrawal makes health factor below 1", async function () {
       const liquidityAmount = ethers.parseUnits("1000", DECIMALS);
       const collateralAmount = ethers.parseUnits("100", DECIMALS);
@@ -386,11 +404,12 @@ describe("LendingPool", function () {
       expect(debtAfter).to.be.gt(borrowAmount);
     });
 
-    it("sets rates back to zero after all debt is repaid", async function () {
+    it("repays all live debt with MaxUint256 after interest accrues", async function () {
       const liquidityAmount = ethers.parseUnits("500", DECIMALS);
       const collateralAmount = ethers.parseUnits("100", DECIMALS);
       const borrowAmount = ethers.parseUnits("50", DECIMALS);
       const assetAddress = await asset.getAddress();
+      const aliceAddress = await alice.getAddress();
 
       await setupAliceDebt(liquidityAmount, collateralAmount, borrowAmount);
 
@@ -399,6 +418,15 @@ describe("LendingPool", function () {
 
       await asset.connect(alice).approve(await pool.getAddress(), ethers.MaxUint256);
       await pool.connect(alice).repay(assetAddress, ethers.MaxUint256);
+
+      const reserve = await pool.getReserveData(assetAddress);
+      const debtAfter = await debtToken.balanceOfWithIndex(
+        aliceAddress,
+        reserve.borrowIndexRay,
+      );
+
+      expect(debtAfter).to.equal(0n);
+      expect(await debtToken.scaledBalanceOf(aliceAddress)).to.equal(0n);
 
       const rates = await pool.getReserveRates(assetAddress);
       expect(rates.liquidityRateRayPerSecond).to.equal(0n);

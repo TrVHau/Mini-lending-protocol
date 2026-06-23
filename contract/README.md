@@ -38,6 +38,7 @@ npm run deploy:local
 
 ## Notes
 
-- The local deploy script prints the deployed addresses for the oracle, pool, assets, and token wrappers.
+- The local deploy script prints the deployed addresses for the oracle, pool, assets, token wrappers, and seeded demo users.
+- It also seeds several supply/borrow positions so the local market starts with non-zero utilization.
 - Use those addresses to update the frontend config when you redeploy.
 - Contract glossary: [GLOSSARY.html](GLOSSARY.html).

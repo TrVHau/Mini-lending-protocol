@@ -13,6 +13,7 @@ interface ILendingPool {
 
     /// @notice Withdraws `amount` of `asset` by burning aTokens.
     ///         Health factor must remain >= 1 if the user has outstanding debt.
+    ///         Pass `type(uint256).max` to withdraw the full aToken balance.
     function withdraw(address asset, uint256 amount) external;
 
     /// @notice Borrows `amount` of `asset` against deposited collateral.

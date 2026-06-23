@@ -107,6 +107,8 @@ The local deploy script creates:
 - `DefaultInterestRateStrategy`
 - mock WETH and DAI assets
 - `AToken` and `VariableDebtToken` wrappers for each reserve
+- seeded market activity across User/Alice/Bob/Carol so the frontend starts
+  with supplied liquidity, borrowed debt, utilization, and one partial repay
 
 If you redeploy, update the frontend configuration if addresses change:
 
@@ -120,7 +122,7 @@ The frontend currently reads `LENDING_POOL_ADDRESS` from `frontend/src/config/co
 1. Start `npx hardhat node`.
 2. Run `npm run deploy:local` from `contract/`.
 3. Connect the frontend wallet to Hardhat chain `31337`.
-4. Deposit collateral.
+4. Inspect the pre-seeded market positions, or deposit more collateral.
 5. Borrow an available asset.
 6. Inspect account data and health factor.
 7. Adjust mock oracle prices or use test scenarios to make a position liquidatable.
