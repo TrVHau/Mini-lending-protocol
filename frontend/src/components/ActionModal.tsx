@@ -1,18 +1,21 @@
-import { useEffect, useRef, useState } from "react";
+import { type ChangeEvent, useEffect, useRef, useState } from "react";
 import { useConnection as useAccount } from "wagmi";
+import { LENDING_POOL_ADDRESS } from "../config/contracts";
 import {
   useAllowance,
-  useAssetPrice,
   useApprove,
+  useAssetPrice,
   useLendingPoolAction,
   useReserveData,
   useTokenBalance,
   useUserAccountData,
   useUserReserveData,
 } from "../hooks";
-import { LENDING_POOL_ADDRESS } from "../config/contracts";
 
 export type ActionType = "supply" | "withdraw" | "borrow" | "repay";
+
+type MaxMode = "none" | "repayAll" | "withdrawAll";
+type TransactionStep = "input" | "approving" | "executing" | "done";
 
 interface Props {
   isOpen: boolean;
@@ -22,6 +25,11 @@ interface Props {
   assetDecimals: number;
   aTokenAddress?: `0x${string}`;
   action: ActionType;
+}
+
+interface SubmittedRequest {
+  amount: bigint;
+  maxMode: MaxMode;
 }
 
 const LABEL: Record<ActionType, string> = {
@@ -39,56 +47,119 @@ const BALANCE_LABEL: Record<ActionType, string> = {
 };
 
 const ACTION_COLOR: Record<ActionType, string> = {
-  supply: "bg-emerald-400 text-slate-950 hover:bg-emerald-300",
+  supply: "bg-slate-400 text-slate-950 hover:bg-emerald-300",
   withdraw: "bg-slate-700 text-slate-50 hover:bg-slate-600",
-  borrow: "bg-cyan-400 text-slate-950 hover:bg-cyan-300",
+  borrow: "bg-slate-400 text-slate-950 hover:bg-cyan-300",
   repay: "bg-slate-700 text-slate-50 hover:bg-slate-600",
 };
 
-const WAD = 1e18;
-const WAD_BIG = 10n ** 18n;
+const WAD = 10n ** 18n;
 const BPS = 10_000n;
-const MAX_UINT =
-  "0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 const MAX_UINT256 = 2n ** 256n - 1n;
 
+// Treat allowances above this value as effectively unlimited. This remains
+// true even for ERC-20 tokens that decrement a MAX_UINT256 allowance.
+const UNLIMITED_ALLOWANCE_THRESHOLD = MAX_UINT256 / 2n;
+
+// Use only 99.5% of the calculated borrow capacity to avoid borrowing exactly
+// at the collateral boundary.
+const BORROW_SAFETY_BPS = 9_950n;
+
+// Keep the estimated health factor at or above 1.01 after a MAX withdrawal.
+const MIN_WITHDRAW_HEALTH_FACTOR_WAD = 1_010_000_000_000_000_000n;
+
+function isValidAmountInput(raw: string, decimals: number): boolean {
+  if (decimals === 0) {
+    return /^\d*$/.test(raw);
+  }
+
+  const pattern = new RegExp(`^\\d*(\\.\\d{0,${decimals}})?$`);
+  return pattern.test(raw);
+}
+
 function parseAmount(raw: string, decimals: number): bigint {
+  if (!raw || raw === ".") return 0n;
+
   try {
-    const [int, frac = ""] = raw.split(".");
-    const cleanInt = int === "" || int === "-" ? "0" : int;
-    const fracPadded = frac.padEnd(decimals, "0").slice(0, decimals);
-    const result = BigInt(cleanInt + fracPadded);
-    return result >= 0n ? result : 0n;
+    const [integerPart = "0", fractionalPart = ""] = raw.split(".");
+    const normalizedInteger = integerPart || "0";
+    const normalizedFraction = fractionalPart.padEnd(decimals, "0");
+    const value =
+      decimals === 0
+        ? normalizedInteger
+        : `${normalizedInteger}${normalizedFraction}`;
+
+    return BigInt(value || "0");
   } catch {
     return 0n;
   }
 }
 
-function formatAmount(raw: bigint, decimals: number): string {
+function formatAmount(value: bigint, decimals: number): string {
   const divisor = 10n ** BigInt(decimals);
-  const int = raw / divisor;
-  const frac = raw % divisor;
-  if (frac === 0n) return int.toString();
-  return `${int}.${frac.toString().padStart(decimals, "0").replace(/0+$/, "")}`;
+  const integerPart = value / divisor;
+  const fractionalPart = value % divisor;
+
+  if (fractionalPart === 0n) {
+    return integerPart.toString();
+  }
+
+  const formattedFraction = fractionalPart
+    .toString()
+    .padStart(decimals, "0")
+    .replace(/0+$/, "");
+
+  return `${integerPart}.${formattedFraction}`;
 }
 
-function formatHealthFactor(hf?: bigint): string {
-  if (!hf) return "--";
-  if (hf === BigInt(MAX_UINT)) return "Max";
-  return (Number(hf) / WAD).toFixed(2);
+function formatHealthFactor(healthFactor?: bigint): string {
+  if (healthFactor === undefined || healthFactor === null) {
+    return "--";
+  }
+
+  if (healthFactor === MAX_UINT256) {
+    return "Max";
+  }
+
+  const integerPart = healthFactor / WAD;
+  const decimalPart = ((healthFactor % WAD) * 100n) / WAD;
+
+  return `${integerPart}.${decimalPart.toString().padStart(2, "0")}`;
 }
 
 function usdWadToAssetAmount(
   usdWad: bigint,
   priceWad: bigint,
   decimals: number,
-) {
+): bigint {
   if (priceWad === 0n) return 0n;
 
-  const amountWad = (usdWad * WAD_BIG) / priceWad;
+  const amountWad = (usdWad * WAD) / priceWad;
+
   if (decimals === 18) return amountWad;
-  if (decimals < 18) return amountWad / 10n ** BigInt(18 - decimals);
+  if (decimals < 18) {
+    return amountWad / 10n ** BigInt(18 - decimals);
+  }
+
   return amountWad * 10n ** BigInt(decimals - 18);
+}
+
+function getErrorMessage(error: unknown): string {
+  if (error instanceof Error) {
+    return error.message.split("(")[0]?.trim() || "Transaction failed";
+  }
+
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "message" in error &&
+    typeof (error as { message?: unknown }).message === "string"
+  ) {
+    const message = (error as { message: string }).message;
+    return message.split("(")[0]?.trim() || "Transaction failed";
+  }
+
+  return "Transaction failed";
 }
 
 export default function ActionModal({
@@ -101,38 +172,49 @@ export default function ActionModal({
   action,
 }: Props) {
   const { address } = useAccount();
-  const [rawInput, setRawInput] = useState("");
-  const submittedAmountRef = useRef<bigint | null>(null);
-  const [maxMode, setMaxMode] = useState<"none" | "repayAll" | "withdrawAll">(
-    "none",
-  );
-  const [step, setStep] = useState<
-    "input" | "approving" | "executing" | "done"
-  >("input");
 
-  // Repay-all and withdraw-all support the Aave-style uint256.max sentinel.
-  // Supply and borrow MAX use frontend-computed exact amounts.
+  const [rawInput, setRawInput] = useState("");
+  const [maxMode, setMaxMode] = useState<MaxMode>("none");
+  const [step, setStep] = useState<TransactionStep>("input");
+  const [submittedRequest, setSubmittedRequest] =
+    useState<SubmittedRequest | null>(null);
+  const [flowError, setFlowError] = useState<string | null>(null);
+
+  // These refs are only read inside effects and event handlers. They ensure
+  // that a stale isSuccess value from a previous transaction cannot advance
+  // the current transaction flow.
+  const approvalObservedPendingRef = useRef(false);
+  const actionObservedPendingRef = useRef(false);
+
   const parsedInput = rawInput ? parseAmount(rawInput, assetDecimals) : 0n;
-  const amountBig =
+
+  const inputAmount =
     maxMode === "repayAll" || maxMode === "withdrawAll"
       ? MAX_UINT256
       : parsedInput;
-  const activeAmountBig = submittedAmountRef.current ?? amountBig;
+
+  // Lock both the amount and MAX mode after submit. Editing the form can no
+  // longer change the transaction that is already being approved/executed.
+  const activeAmount = submittedRequest?.amount ?? inputAmount;
+  const activeMaxMode = submittedRequest?.maxMode ?? maxMode;
+
+  const isProcessing = step === "approving" || step === "executing";
+  const needsApproval = action === "supply" || action === "repay";
 
   const { accountData } = useUserAccountData(address);
   const { reserveData } = useReserveData(assetAddress);
+  const { userReserveData } = useUserReserveData(address, assetAddress);
+  const { priceWad } = useAssetPrice(assetAddress);
+
   const { balance: walletBalance } = useTokenBalance(address, assetAddress);
   const { balance: reserveLiquidity } = useTokenBalance(
     action === "borrow" ? aTokenAddress : null,
     action === "borrow" ? assetAddress : null,
   );
-  const { userReserveData } = useUserReserveData(address, assetAddress);
-  const { priceWad } = useAssetPrice(assetAddress);
 
-  const needsApproval = action === "supply" || action === "repay";
   const {
     allowance,
-    isLoading: allowanceLoading,
+    isLoading: isAllowanceLoading,
     error: allowanceError,
   } = useAllowance(
     needsApproval ? address : null,
@@ -140,127 +222,208 @@ export default function ActionModal({
     needsApproval ? assetAddress : null,
   );
 
-  // For max-repay we must approve MAX_UINT256, not the cached debtAmount.
-  // Reason: the contract's repay() calls transferFrom(user, aToken, liveDebt)
-  // where liveDebt includes per-second interest accrued AFTER the approve tx.
-  // If we approved only the cached amount, the transfer reverts with
-  // "ERC20: insufficient allowance" even though the user intended a full repay.
-  const approveAmount =
-    maxMode === "repayAll" && action === "repay"
-      ? MAX_UINT256
-      : activeAmountBig;
+  const walletBalanceBig =
+    typeof walletBalance === "bigint" ? walletBalance : null;
+  const reserveLiquidityBig =
+    typeof reserveLiquidity === "bigint" ? reserveLiquidity : null;
+  const allowanceBig = typeof allowance === "bigint" ? allowance : null;
+  const priceWadBig = typeof priceWad === "bigint" ? priceWad : null;
 
-  const approve = useApprove(assetAddress, LENDING_POOL_ADDRESS, approveAmount);
-  const actionHook = useLendingPoolAction(
-    action,
-    assetAddress,
-    activeAmountBig,
-  );
+  // Approval transactions always grant MAX_UINT256. The allowance check below
+  // still compares the existing allowance against the CURRENT transaction, so
+  // a large allowance granted previously is reused without another approval.
+  const approvalTransactionAmount = needsApproval ? MAX_UINT256 : 0n;
 
-  function executeAction() {
-    actionHook.execute();
-  }
+  const {
+    approve: sendApproval,
+    isPending: isApprovalPending,
+    isConfirming: isApprovalConfirming,
+    isSuccess: isApprovalSuccess,
+    error: approvalTransactionError,
+  } = useApprove(assetAddress, LENDING_POOL_ADDRESS, approvalTransactionAmount);
+
+  const {
+    execute: executeAction,
+    isPending: isActionPending,
+    isConfirming: isActionConfirming,
+    isSuccess: isActionSuccess,
+    error: actionTransactionError,
+  } = useLendingPoolAction(action, assetAddress, activeAmount);
+
+  const requiredAllowanceAmount =
+    action === "repay" && activeMaxMode === "repayAll"
+      ? (userReserveData?.debtAmount ?? 0n)
+      : activeAmount;
+
+  const hasUnlimitedAllowance =
+    allowanceBig !== null && allowanceBig >= UNLIMITED_ALLOWANCE_THRESHOLD;
+
+  const isAllowanceReady =
+    !needsApproval ||
+    (!isAllowanceLoading && allowanceBig !== null && !allowanceError);
+
+  const isApproved =
+    !needsApproval ||
+    (action === "repay" && activeMaxMode === "repayAll"
+      ? hasUnlimitedAllowance
+      : allowanceBig !== null && allowanceBig >= requiredAllowanceAmount);
+
+  const supplyExceedsWallet =
+    action === "supply" &&
+    walletBalanceBig !== null &&
+    parsedInput > walletBalanceBig;
 
   useEffect(() => {
-    if (approve.isSuccess && step === "approving") {
-      const tid = window.setTimeout(() => {
-        setStep("executing");
-        executeAction();
-      }, 0);
-      return () => clearTimeout(tid);
+    if (step !== "approving") return;
+
+    if (isApprovalPending || isApprovalConfirming) {
+      approvalObservedPendingRef.current = true;
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [approve.isSuccess, step]);
 
-  useEffect(() => {
-    if (actionHook.isSuccess && step === "executing") {
-      const tid = window.setTimeout(() => {
-        setStep("done");
-      }, 0);
-      return () => clearTimeout(tid);
-    }
-  }, [actionHook.isSuccess, step]);
+    if (!approvalObservedPendingRef.current) return;
 
-  useEffect(() => {
-    if (isOpen) {
-      submittedAmountRef.current = null;
-      const tid = window.setTimeout(() => {
-        setRawInput("");
-        setMaxMode("none");
+    if (approvalTransactionError) {
+      approvalObservedPendingRef.current = false;
+      const message = getErrorMessage(approvalTransactionError);
+
+      const timerId = window.setTimeout(() => {
+        setFlowError(message);
+        setSubmittedRequest(null);
         setStep("input");
       }, 0);
-      return () => clearTimeout(tid);
+
+      return () => window.clearTimeout(timerId);
     }
-  }, [isOpen]);
+
+    if (isApprovalSuccess) {
+      approvalObservedPendingRef.current = false;
+      actionObservedPendingRef.current = false;
+
+      const timerId = window.setTimeout(() => {
+        setStep("executing");
+
+        try {
+          executeAction();
+        } catch (error) {
+          setFlowError(getErrorMessage(error));
+          setSubmittedRequest(null);
+          setStep("input");
+        }
+      }, 0);
+
+      return () => window.clearTimeout(timerId);
+    }
+  }, [
+    step,
+    isApprovalPending,
+    isApprovalConfirming,
+    isApprovalSuccess,
+    approvalTransactionError,
+    executeAction,
+  ]);
+
+  useEffect(() => {
+    if (step !== "executing") return;
+
+    if (isActionPending || isActionConfirming) {
+      actionObservedPendingRef.current = true;
+    }
+
+    if (!actionObservedPendingRef.current) return;
+
+    if (actionTransactionError) {
+      actionObservedPendingRef.current = false;
+      const message = getErrorMessage(actionTransactionError);
+
+      const timerId = window.setTimeout(() => {
+        setFlowError(message);
+        setSubmittedRequest(null);
+        setStep("input");
+      }, 0);
+
+      return () => window.clearTimeout(timerId);
+    }
+
+    if (isActionSuccess) {
+      actionObservedPendingRef.current = false;
+
+      const timerId = window.setTimeout(() => {
+        setStep("done");
+      }, 0);
+
+      return () => window.clearTimeout(timerId);
+    }
+  }, [
+    step,
+    isActionPending,
+    isActionConfirming,
+    isActionSuccess,
+    actionTransactionError,
+  ]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const timerId = window.setTimeout(() => {
+      approvalObservedPendingRef.current = false;
+      actionObservedPendingRef.current = false;
+      setRawInput("");
+      setMaxMode("none");
+      setStep("input");
+      setSubmittedRequest(null);
+      setFlowError(null);
+    }, 0);
+
+    return () => window.clearTimeout(timerId);
+  }, [isOpen, assetAddress, assetDecimals, action]);
 
   if (!isOpen) return null;
 
-  const allowanceBig = allowance as bigint | null;
-  const supplyExceedsWallet =
-    action === "supply" &&
-    walletBalance !== null &&
-    parsedInput > (walletBalance as bigint);
-  const isAllowanceReady =
-    !needsApproval || (!allowanceLoading && allowanceBig !== null);
-  const isApproved =
-    !needsApproval || (allowanceBig !== null && allowanceBig >= approveAmount);
-
-  function handleSubmit() {
-    if (!address) return;
-    if (amountBig === 0n) return;
-    if (supplyExceedsWallet) return;
-    if (needsApproval && !isAllowanceReady) return;
-
-    submittedAmountRef.current = amountBig;
-
-    if (needsApproval && !isApproved) {
-      setStep("approving");
-      approve.approve();
-      return;
-    }
-
-    setStep("executing");
-    executeAction();
-  }
-
-  function handleClose() {
-    submittedAmountRef.current = null;
-    setRawInput("");
-    setMaxMode("none");
-    setStep("input");
-    onClose();
-  }
-
   const maxAmountBig = (() => {
-    if (action === "supply" && walletBalance !== null) {
-      return walletBalance as bigint;
+    if (action === "supply" && walletBalanceBig !== null) {
+      return walletBalanceBig;
     }
+
+    if (action === "repay" && userReserveData) {
+      return userReserveData.debtAmount;
+    }
+
     if (action === "withdraw" && userReserveData) {
       const suppliedAmount = userReserveData.collateralAmount;
+
       if (!accountData || !reserveData || accountData.debtUsdWad === 0n) {
         return suppliedAmount;
       }
 
-      const thresholdBps = reserveData.liquidationThresholdBps;
+      const liquidationThresholdBps = reserveData.liquidationThresholdBps;
+
       if (
-        thresholdBps === 0n ||
-        !priceWad ||
-        priceWad === 0n ||
-        accountData.healthFactorWad <= WAD_BIG
+        liquidationThresholdBps === 0n ||
+        priceWadBig === null ||
+        priceWadBig === 0n ||
+        accountData.healthFactorWad <= MIN_WITHDRAW_HEALTH_FACTOR_WAD
       ) {
         return 0n;
       }
 
-      // Estimate the asset-specific amount that can be withdrawn while keeping
-      // health factor >= 1. The contract remains the final authority.
-      const liquidationThresholdUsdWad =
-        (accountData.healthFactorWad * accountData.debtUsdWad) / WAD_BIG;
-      if (liquidationThresholdUsdWad <= accountData.debtUsdWad) return 0n;
+      const currentLiquidationThresholdUsdWad =
+        (accountData.healthFactorWad * accountData.debtUsdWad) / WAD;
+
+      const requiredLiquidationThresholdUsdWad =
+        (accountData.debtUsdWad * MIN_WITHDRAW_HEALTH_FACTOR_WAD) / WAD;
+
+      if (
+        currentLiquidationThresholdUsdWad <= requiredLiquidationThresholdUsdWad
+      ) {
+        return 0n;
+      }
 
       const removableThresholdUsdWad =
-        liquidationThresholdUsdWad - accountData.debtUsdWad;
+        currentLiquidationThresholdUsdWad - requiredLiquidationThresholdUsdWad;
+
       const removableCollateralUsdWad =
-        (removableThresholdUsdWad * BPS) / thresholdBps;
+        (removableThresholdUsdWad * BPS) / liquidationThresholdBps;
+
       const cappedWithdrawUsdWad =
         removableCollateralUsdWad < userReserveData.collateralUsdWad
           ? removableCollateralUsdWad
@@ -268,54 +431,56 @@ export default function ActionModal({
 
       let withdrawAmount = usdWadToAssetAmount(
         cappedWithdrawUsdWad,
-        priceWad,
+        priceWadBig,
         assetDecimals,
       );
-      if (withdrawAmount > suppliedAmount) withdrawAmount = suppliedAmount;
 
-      // Stay just inside the boundary to avoid a one-unit rounding mismatch in
-      // the on-chain health-factor check.
+      if (withdrawAmount > suppliedAmount) {
+        withdrawAmount = suppliedAmount;
+      }
+
       if (withdrawAmount > 0n && withdrawAmount < suppliedAmount) {
         withdrawAmount -= 1n;
       }
 
       return withdrawAmount;
     }
-    if (action === "repay" && userReserveData) {
-      // Display known debt; submitting MAX sends uint256.max under the hood.
-      return userReserveData.debtAmount;
-    }
+
     if (
       action === "borrow" &&
       accountData &&
-      priceWad !== undefined &&
-      priceWad > 0n
+      priceWadBig !== null &&
+      priceWadBig > 0n
     ) {
       const availableBorrowUsdWad =
         accountData.maxBorrowUsdWad > accountData.debtUsdWad
           ? accountData.maxBorrowUsdWad - accountData.debtUsdWad
           : 0n;
-      if (availableBorrowUsdWad === 0n) return 0n;
 
-      const borrowCapacityRaw = usdWadToAssetAmount(
-        availableBorrowUsdWad,
-        priceWad,
+      if (availableBorrowUsdWad === 0n) {
+        return 0n;
+      }
+
+      const safeBorrowUsdWad =
+        (availableBorrowUsdWad * BORROW_SAFETY_BPS) / BPS;
+
+      let borrowAmount = usdWadToAssetAmount(
+        safeBorrowUsdWad,
+        priceWadBig,
         assetDecimals,
       );
-      // Subtract 1 unit (smallest denomination) to avoid landing exactly on the
-      // collateral ceiling — the contract's _assetToUsdWad can round up by 1 wei,
-      // causing an INSUFFICIENT_COLLATERAL revert at the exact boundary.
-      const borrowCapacity =
-        borrowCapacityRaw > 1n ? borrowCapacityRaw - 1n : borrowCapacityRaw;
 
-      const liquidity = reserveLiquidity as bigint | null;
-      const maxBorrow =
-        liquidity !== null && liquidity < borrowCapacity
-          ? liquidity
-          : borrowCapacity;
+      if (reserveLiquidityBig !== null && reserveLiquidityBig < borrowAmount) {
+        borrowAmount = reserveLiquidityBig;
+      }
 
-      return maxBorrow;
+      if (borrowAmount > 1n) {
+        borrowAmount -= 1n;
+      }
+
+      return borrowAmount;
     }
+
     return null;
   })();
 
@@ -323,50 +488,142 @@ export default function ActionModal({
     maxAmountBig !== null ? formatAmount(maxAmountBig, assetDecimals) : null;
 
   const maxHint = (() => {
-    if (action === "supply") {
-      return "MAX supplies your wallet balance.";
+    switch (action) {
+      case "supply":
+        return "MAX supplies your full wallet balance.";
+      case "withdraw":
+        return accountData && accountData.debtUsdWad > 0n
+          ? "MAX estimates a safe withdrawal while keeping health factor at or above 1.01."
+          : "MAX submits uint256.max to withdraw your full supplied balance.";
+      case "borrow":
+        return "MAX uses 99.5% of your available borrowing capacity and is capped by reserve liquidity.";
+      case "repay":
+        return "MAX submits uint256.max so the pool repays all live debt, including newly accrued interest.";
     }
-    if (action === "withdraw") {
-      return accountData && accountData.debtUsdWad > 0n
-        ? "MAX estimates the largest safe withdrawal while keeping health factor above 1; if that is the full balance, it submits uint256.max."
-        : "MAX submits uint256.max to withdraw your full supplied balance.";
-    }
-    if (action === "borrow") {
-      return "MAX borrows up to your capacity, capped by reserve liquidity and rounded down slightly.";
-    }
-    if (action === "repay") {
-      return "MAX submits uint256.max so the pool repays all live debt after interest accrues.";
-    }
-    return "";
   })();
 
   const isPending =
     step === "approving"
-      ? approve.isPending || approve.isConfirming
+      ? isApprovalPending || isApprovalConfirming
       : step === "executing"
-        ? actionHook.isPending || actionHook.isConfirming
+        ? isActionPending || isActionConfirming
         : false;
 
-  const txError = step === "approving" ? approve.error : actionHook.error;
-  const visibleAllowanceError = needsApproval ? allowanceError : undefined;
+  const visibleAllowanceError =
+    needsApproval && allowanceError ? getErrorMessage(allowanceError) : null;
 
-  const btnLabel = () => {
+  const visibleError = flowError ?? visibleAllowanceError;
+
+  function handleSubmit() {
+    if (step !== "input") return;
+    if (!address) return;
+    if (inputAmount === 0n) return;
+    if (supplyExceedsWallet) return;
+    if (needsApproval && !isAllowanceReady) return;
+
+    setFlowError(null);
+    setSubmittedRequest({
+      amount: inputAmount,
+      maxMode,
+    });
+
+    if (needsApproval && !isApproved) {
+      approvalObservedPendingRef.current = false;
+      setStep("approving");
+
+      try {
+        sendApproval();
+      } catch (error) {
+        setFlowError(getErrorMessage(error));
+        setSubmittedRequest(null);
+        setStep("input");
+      }
+
+      return;
+    }
+
+    actionObservedPendingRef.current = false;
+    setStep("executing");
+
+    try {
+      executeAction();
+    } catch (error) {
+      setFlowError(getErrorMessage(error));
+      setSubmittedRequest(null);
+      setStep("input");
+    }
+  }
+
+  function handleClose() {
+    if (isProcessing) return;
+
+    approvalObservedPendingRef.current = false;
+    actionObservedPendingRef.current = false;
+    setRawInput("");
+    setMaxMode("none");
+    setStep("input");
+    setSubmittedRequest(null);
+    setFlowError(null);
+    onClose();
+  }
+
+  function handleInputChange(event: ChangeEvent<HTMLInputElement>) {
+    const nextValue = event.target.value;
+
+    if (!isValidAmountInput(nextValue, assetDecimals)) {
+      return;
+    }
+
+    setRawInput(nextValue);
+    setMaxMode("none");
+    setFlowError(null);
+  }
+
+  function handleMaxClick() {
+    if (isProcessing || maxAmountBig === null) return;
+
+    setRawInput(maxAmount ?? "0");
+    setFlowError(null);
+
+    if (action === "repay" && maxAmountBig > 0n) {
+      setMaxMode("repayAll");
+      return;
+    }
+
+    if (
+      action === "withdraw" &&
+      userReserveData &&
+      userReserveData.collateralAmount > 0n &&
+      maxAmountBig === userReserveData.collateralAmount
+    ) {
+      setMaxMode("withdrawAll");
+      return;
+    }
+
+    setMaxMode("none");
+  }
+
+  function getButtonLabel(): string {
     if (step === "done") return "Transaction complete";
+
     if (step === "approving") {
-      return approve.isConfirming ? "Confirming approval..." : "Approving...";
+      return isApprovalConfirming
+        ? "Confirming approval..."
+        : "Approving unlimited allowance...";
     }
+
     if (step === "executing") {
-      return actionHook.isConfirming
-        ? "Confirming transaction..."
-        : "Submitting...";
+      return isActionConfirming ? "Confirming transaction..." : "Submitting...";
     }
+
     if (!address) return "Connect wallet first";
     if (supplyExceedsWallet) return "Insufficient wallet balance";
     if (visibleAllowanceError) return "Allowance unavailable";
     if (needsApproval && !isAllowanceReady) return "Checking allowance...";
     if (!isApproved) return `Approve ${assetSymbol}`;
+
     return `${LABEL[action]} ${assetSymbol}`;
-  };
+  }
 
   return (
     <div
@@ -382,9 +639,12 @@ export default function ActionModal({
             {LABEL[action]}{" "}
             <span className="text-slate-400">{assetSymbol}</span>
           </h2>
+
           <button
+            type="button"
             onClick={handleClose}
-            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-100"
+            disabled={isProcessing}
+            className="flex h-8 w-8 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
             aria-label="Close modal"
           >
             X
@@ -396,10 +656,13 @@ export default function ActionModal({
             <div className="flex h-14 w-14 items-center justify-center rounded-full bg-emerald-400/15 text-2xl font-semibold text-emerald-300">
               OK
             </div>
+
             <p className="text-lg font-semibold text-emerald-300">
-              Transaction submitted successfully.
+              Transaction confirmed successfully.
             </p>
+
             <button
+              type="button"
               onClick={handleClose}
               className="mt-2 rounded-lg bg-slate-800 px-6 py-2 text-sm text-slate-200 transition-colors hover:bg-slate-700"
             >
@@ -419,38 +682,25 @@ export default function ActionModal({
               <input
                 type="text"
                 inputMode="decimal"
-                min="0"
-                step="any"
                 placeholder="0.00"
                 value={rawInput}
-                onChange={(event) => {
-                  setRawInput(event.target.value);
-                  setMaxMode("none"); // manual edit cancels MAX sentinel mode
-                }}
-                className="min-w-0 flex-1 bg-transparent px-4 py-3 text-lg font-semibold text-slate-50 outline-none placeholder:text-slate-600"
+                disabled={isProcessing}
+                onChange={handleInputChange}
+                className="min-w-0 flex-1 bg-transparent px-4 py-3 text-lg font-semibold text-slate-50 outline-none placeholder:text-slate-600 disabled:cursor-not-allowed disabled:opacity-60"
               />
+
               <div className="flex items-center gap-2 pr-4">
                 {maxAmountBig !== null && (
                   <button
                     type="button"
-                    onClick={() => {
-                      setRawInput(maxAmount ?? "0");
-                      setMaxMode(
-                        action === "repay" && maxAmountBig > 0n
-                          ? "repayAll"
-                          : action === "withdraw" &&
-                              userReserveData &&
-                              userReserveData.collateralAmount > 0n &&
-                              maxAmountBig === userReserveData.collateralAmount
-                            ? "withdrawAll"
-                            : "none",
-                      );
-                    }}
-                    className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-300 transition-colors hover:bg-slate-600"
+                    disabled={isProcessing}
+                    onClick={handleMaxClick}
+                    className="rounded bg-slate-700 px-2 py-0.5 text-xs text-slate-300 transition-colors hover:bg-slate-600 disabled:cursor-not-allowed disabled:opacity-40"
                   >
                     MAX
                   </button>
                 )}
+
                 <span className="text-sm font-medium text-slate-400">
                   {assetSymbol}
                 </span>
@@ -464,8 +714,9 @@ export default function ActionModal({
             <div className="mb-3 rounded-lg border border-slate-800 bg-slate-900/70 p-3">
               <div className="flex items-center justify-between text-xs text-slate-500">
                 <span>Health factor</span>
-                <span className="text-slate-400">Before - After</span>
+                <span>Before - After</span>
               </div>
+
               <div className="mt-2 flex items-center justify-between text-sm font-semibold">
                 <span className="text-slate-100">
                   {formatHealthFactor(accountData?.healthFactorWad)}
@@ -476,11 +727,13 @@ export default function ActionModal({
             </div>
 
             {needsApproval &&
-              amountBig > 0n &&
+              inputAmount > 0n &&
               isAllowanceReady &&
               !isApproved && (
                 <div className="mb-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
-                  This action needs token approval before the transaction.
+                  The first approval grants the pool a reusable unlimited
+                  allowance, so later supply and repay transactions can skip
+                  this step.
                 </div>
               )}
 
@@ -490,21 +743,20 @@ export default function ActionModal({
               </div>
             )}
 
-            {(txError || visibleAllowanceError) && (
+            {visibleError && (
               <div className="mb-3 rounded-lg border border-red-400/30 bg-red-400/10 px-3 py-2 text-xs text-red-200">
-                {(txError || visibleAllowanceError)?.message?.split("(")[0] ??
-                  "Transaction failed"}
+                {visibleError}
               </div>
             )}
 
             <button
+              type="button"
               onClick={handleSubmit}
               disabled={
-                amountBig === 0n ||
+                step !== "input" ||
+                inputAmount === 0n ||
                 !address ||
                 supplyExceedsWallet ||
-                isPending ||
-                (step as string) === "done" ||
                 (needsApproval && !isAllowanceReady)
               }
               className={`mt-3 w-full rounded-lg py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${ACTION_COLOR[action]}`}
@@ -512,10 +764,10 @@ export default function ActionModal({
               {isPending ? (
                 <span className="flex items-center justify-center gap-2">
                   <span className="h-4 w-4 animate-spin rounded-full border-2 border-current border-t-transparent" />
-                  {btnLabel()}
+                  {getButtonLabel()}
                 </span>
               ) : (
-                btnLabel()
+                getButtonLabel()
               )}
             </button>
           </>

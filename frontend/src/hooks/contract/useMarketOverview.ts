@@ -253,22 +253,34 @@ function useMarketOverview() {
   }, [metaQuery.data, reserves]);
 
   const marketStatsByAsset = useMemo(() => {
-    if (!statsQuery.data || !reserves.length || !reserveDataByAsset) {
+    if (
+      !statsQuery.data ||
+      statsCallAssets.length === 0 ||
+      !reserveDataByAsset
+    ) {
       return undefined;
     }
-
     const map: MarketStatsMap = {};
-
-    const getResult = (entry: unknown) => {
+    const getResult = (entry: unknown): bigint | null => {
       const typed = entry as ContractResult;
-      if (!typed || typed.status !== "success") return null;
-      return typed.result as bigint;
+      if (
+        !typed ||
+        typed.status !== "success" ||
+        typeof typed.result !== "bigint"
+      ) {
+        return null;
+      }
+      return typed.result;
     };
-
     for (let i = 0; i < statsCallAssets.length; i++) {
       const asset = statsCallAssets[i];
+      if (!asset) {
+        continue;
+      }
       const reserve = reserveDataByAsset[asset];
-      if (!reserve?.aToken) continue;
+      if (!reserve?.aToken) {
+        continue;
+      }
       const availableLiquidity = getResult(statsQuery.data[i * 3]);
       const totalDeposits = getResult(statsQuery.data[i * 3 + 1]);
       const totalBorrowed = getResult(statsQuery.data[i * 3 + 2]);
@@ -279,7 +291,12 @@ function useMarketOverview() {
       ) {
         continue;
       }
-      map[asset] = { availableLiquidity, totalDeposits, totalBorrowed };
+
+      map[asset] = {
+        availableLiquidity,
+        totalDeposits,
+        totalBorrowed,
+      };
     }
 
     return map;
