@@ -1,7 +1,5 @@
-import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useMarketOverview } from "../hooks";
-import ActionModal, { type ActionType } from "./ActionModal";
 
 function formatToken(amount: bigint | undefined, decimals: number): string {
   if (amount === undefined) return "--";
@@ -25,25 +23,6 @@ function MarketTable() {
     marketStatsByAsset,
     isLoading,
   } = useMarketOverview();
-
-  const [modal, setModal] = useState<{
-    open: boolean;
-    action: ActionType;
-    asset: `0x${string}`;
-    symbol: string;
-    decimals: number;
-    aToken?: `0x${string}`;
-  } | null>(null);
-
-  function openModal(
-    action: ActionType,
-    asset: `0x${string}`,
-    symbol: string,
-    decimals: number,
-    aToken?: `0x${string}`,
-  ) {
-    setModal({ open: true, action, asset, symbol, decimals, aToken });
-  }
 
   if (isLoading) {
     return (
@@ -91,7 +70,6 @@ function MarketTable() {
                   "Total borrowed",
                   "Available",
                   "LTV",
-                  "",
                 ].map((h) => (
                   <th
                     key={h}
@@ -179,41 +157,6 @@ function MarketTable() {
                         {ltv}
                       </span>
                     </td>
-
-                    <td className="border-b border-slate-800/70 px-5 py-4">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() =>
-                            openModal(
-                              "supply",
-                              asset,
-                              symbol,
-                              decimals,
-                              reserve?.aToken,
-                            )
-                          }
-                          disabled={!isActive || isFrozen}
-                          className="rounded-lg bg-emerald-400/10 px-3 py-1.5 text-xs font-semibold text-emerald-300 transition-colors hover:bg-emerald-400/20 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          Supply
-                        </button>
-                        <button
-                          onClick={() =>
-                            openModal(
-                              "borrow",
-                              asset,
-                              symbol,
-                              decimals,
-                              reserve?.aToken,
-                            )
-                          }
-                          disabled={!isActive || isFrozen}
-                          className="rounded-lg bg-cyan-400/10 px-3 py-1.5 text-xs font-semibold text-cyan-300 transition-colors hover:bg-cyan-400/20 disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          Borrow
-                        </button>
-                      </div>
-                    </td>
                   </tr>
                 );
               })}
@@ -221,18 +164,6 @@ function MarketTable() {
           </table>
         </div>
       </section>
-
-      {modal && (
-        <ActionModal
-          isOpen={modal.open}
-          onClose={() => setModal(null)}
-          assetAddress={modal.asset}
-          assetSymbol={modal.symbol}
-          assetDecimals={modal.decimals}
-          aTokenAddress={modal.aToken}
-          action={modal.action}
-        />
-      )}
     </>
   );
 }

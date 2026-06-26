@@ -1,7 +1,5 @@
-import { useState } from "react";
 import { useConnection as useAccount } from "wagmi";
 import AccountSummary from "../components/AccountSummary";
-import ActionModal, { type ActionType } from "../components/ActionModal";
 import Navbar from "../components/Navbar";
 import { useMarketOverview, useUserReserveData } from "../hooks";
 
@@ -27,15 +25,6 @@ function formatApy(value: number | undefined) {
   return `${value.toFixed(value < 0.01 && value > 0 ? 4 : 2)}%`;
 }
 
-type ModalState = {
-  open: boolean;
-  action: ActionType;
-  asset: `0x${string}`;
-  symbol: string;
-  decimals: number;
-  aToken?: `0x${string}`;
-};
-
 type PositionRowProps = {
   asset: `0x${string}`;
   symbol: string;
@@ -45,7 +34,6 @@ type PositionRowProps = {
   userAddress: `0x${string}`;
   apy?: number;
   mode: "supply" | "borrow";
-  onAction: (state: ModalState) => void;
 };
 
 function PositionRow({
@@ -53,11 +41,9 @@ function PositionRow({
   symbol,
   name,
   decimals,
-  aToken,
   userAddress,
   apy,
   mode,
-  onAction,
 }: PositionRowProps) {
   const { userReserveData, isLoading } = useUserReserveData(userAddress, asset);
   const amount =
@@ -70,13 +56,14 @@ function PositionRow({
       : userReserveData?.debtUsdWad;
 
   if (isLoading) {
-    return <div className="rounded-lg bg-slate-900/60 p-4 text-sm text-slate-500">Loading...</div>;
+    return (
+      <div className="rounded-lg bg-slate-900/60 p-4 text-sm text-slate-500">
+        Loading...
+      </div>
+    );
   }
 
   if (!amount || amount === 0n) return null;
-
-  const action = mode === "supply" ? "withdraw" : "repay";
-  const buttonLabel = mode === "supply" ? "Withdraw" : "Repay";
 
   return (
     <div className="grid gap-4 rounded-lg border border-slate-800 bg-slate-950/80 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
@@ -109,23 +96,6 @@ function PositionRow({
             {mode === "supply" ? "Collateral enabled" : "Variable rate"}
           </p>
         </div>
-        <div className="flex items-end justify-end">
-          <button
-            onClick={() =>
-              onAction({
-                open: true,
-                action,
-                asset,
-                symbol,
-                decimals,
-                aToken,
-              })
-            }
-            className="rounded-lg border border-slate-700 px-3 py-2 text-xs font-semibold text-slate-200 transition-colors hover:border-cyan-300/50 hover:text-cyan-200"
-          >
-            {buttonLabel}
-          </button>
-        </div>
       </div>
     </div>
   );
@@ -135,7 +105,6 @@ function Dashboard() {
   const { address, isConnected } = useAccount();
   const { reserves, reserveDataByAsset, ratesByAsset, tokenMetaByAsset } =
     useMarketOverview();
-  const [modal, setModal] = useState<ModalState | null>(null);
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-50">
@@ -190,7 +159,6 @@ function Dashboard() {
                         userAddress={address!}
                         apy={apy}
                         mode={mode}
-                        onAction={setModal}
                       />
                     );
                   })}
@@ -203,18 +171,6 @@ function Dashboard() {
           ))}
         </div>
       </main>
-
-      {modal && (
-        <ActionModal
-          isOpen={modal.open}
-          onClose={() => setModal(null)}
-          assetAddress={modal.asset}
-          assetSymbol={modal.symbol}
-          assetDecimals={modal.decimals}
-          aTokenAddress={modal.aToken}
-          action={modal.action}
-        />
-      )}
     </div>
   );
 }
