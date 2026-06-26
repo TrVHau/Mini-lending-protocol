@@ -13,14 +13,14 @@ npm install
 Cấu hình biến môi trường (ví dụ trong `.env`):
 
 - `PRIVATE_KEY`: ví deploy
-- `RPC_URL`: RPC testnet
+- `SEPOLIA_RPC_URL`: RPC Sepolia
 - `ETHERSCAN_API_KEY` (nếu verify)
 
 Example `.env` (example):
 
 ```
 PRIVATE_KEY=0x...
-RPC_URL=https://sepolia.infura.io/v3/<KEY>
+SEPOLIA_RPC_URL=https://sepolia.infura.io/v3/<KEY>
 ETHERSCAN_API_KEY=...
 ```
 

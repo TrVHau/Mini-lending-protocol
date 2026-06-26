@@ -5,7 +5,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 import "../interfaces/IPriceOracle.sol";
 
 contract MockPriceOracle is Ownable, IPriceOracle {
-    uint8 public constant PRICE_DECIMALS = 8;
+    uint8 public constant override PRICE_DECIMALS = 8;
 
     mapping(address => uint256) public prices; // asset => price (USD, 1e8)
 

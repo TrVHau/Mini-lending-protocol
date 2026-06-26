@@ -1,11 +1,13 @@
 import { http, createConfig } from "wagmi";
-// import { hardhat, sepolia } from "wagmi/chains";
-import { hardhat } from "wagmi/chains";
-// hiện tại dùng hardhat trước để test, sau này có thể chuyển sang sepolia
+import { sepolia } from "wagmi/chains";
+
+const sepoliaRpcUrl =
+  import.meta.env.VITE_SEPOLIA_RPC_URL ?? "https://1rpc.io/sepolia";
+
 export const config = createConfig({
-  chains: [hardhat],
+  chains: [sepolia],
   transports: {
-    [hardhat.id]: http("http://127.0.0.1:8545"),
-    // [sepolia.id]: http("https://1rpc.io/sepolia"),
+    // [hardhat.id]: http("http://127.0.0.1:8545"),
+    [sepolia.id]: http(sepoliaRpcUrl),
   },
 });
