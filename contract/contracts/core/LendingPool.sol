@@ -6,35 +6,69 @@ import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import "../interfaces/IAToken.sol";
 import "../interfaces/ILendingPool.sol";
+import "../interfaces/IInterestRateStrategy.sol";
 import "../interfaces/IPriceOracle.sol";
 import "../interfaces/IVariableDebtToken.sol";
 import "../libraries/MathUtils.sol";
 
+/// @title LendingPool
+/// @notice Core lending/borrowing engine. Inspired by Aave v2's architecture.
+///         Supports multiple reserves, each with independent risk parameters and
+///         a pluggable interest-rate strategy. All index math uses RAY (1e27)
+///         precision; USD values use WAD (1e18) precision.
 contract LendingPool is ILendingPool, Ownable {
     using MathUtils for uint256;
     using SafeERC20 for IERC20;
 
+    // -------------------------------------------------------------------------
+    // Constants
+    // -------------------------------------------------------------------------
+
     uint256 internal constant RAY = 1e27;
     uint256 internal constant WAD = 1e18;
 
+    // -------------------------------------------------------------------------
+    // Data Structures
+    // -------------------------------------------------------------------------
+
     struct ReserveData {
+        // Token addresses
         IAToken aToken;
         IVariableDebtToken variableDebtToken;
+        // Interest rate strategy
+        IInterestRateStrategy interestRateStrategy;
+        // Asset configuration
         uint8 assetDecimals;
+        // Indexes — stored as of `lastUpdateTimestamp`, not live
         uint256 liquidityIndexRay;
         uint256 borrowIndexRay;
+        // Current per-second rates in RAY (updated on every state change)
         uint256 liquidityRateRayPerSecond;
         uint256 borrowRateRayPerSecond;
+        // Last time indexes were accrued
         uint40 lastUpdateTimestamp;
+        // State flags
         bool isActive;
         bool isFrozen;
+        // Risk parameters (in basis points, 10_000 = 100%)
         uint16 ltvBps;
         uint16 liquidationThresholdBps;
         uint16 liquidationBonusBps;
         uint16 reserveFactorBps;
     }
 
-    // events
+    // -------------------------------------------------------------------------
+    // State
+    // -------------------------------------------------------------------------
+
+    address[] private _reserveList;
+    mapping(address => ReserveData) private _reserves;
+    IPriceOracle public immutable priceOracle;
+
+    // -------------------------------------------------------------------------
+    // Events
+    // -------------------------------------------------------------------------
+
     event Deposit(address indexed user, address indexed asset, uint256 amount);
     event Withdraw(address indexed user, address indexed asset, uint256 amount);
     event Borrow(address indexed user, address indexed asset, uint256 amount);
@@ -42,25 +76,29 @@ contract LendingPool is ILendingPool, Ownable {
     event ReserveInitialized(
         address indexed asset,
         address indexed aToken,
-        address indexed debtToken
+        address indexed debtToken,
+        address interestRateStrategy
     );
     event ReserveUpdated(
         address indexed asset,
         uint256 liquidityIndexRay,
         uint256 borrowIndexRay,
+        uint256 liquidityRateRayPerSecond,
+        uint256 borrowRateRayPerSecond,
         uint40 timestamp
     );
     event Liquidation(
+        address indexed liquidator,
         address indexed user,
         address indexed collateralAsset,
-        address indexed debtAsset,
+        address debtAsset,
         uint256 debtCovered,
         uint256 collateralSeized
     );
 
-    address[] private reserveList;
-    mapping(address => ReserveData) private reserves;
-    IPriceOracle public immutable priceOracle;
+    // -------------------------------------------------------------------------
+    // Constructor
+    // -------------------------------------------------------------------------
 
     constructor(address oracle, address owner_) Ownable(owner_) {
         require(oracle != address(0), "ORACLE_ZERO");
@@ -68,14 +106,16 @@ contract LendingPool is ILendingPool, Ownable {
     }
 
     // -------------------------------------------------------------------------
-    // Main State-Changing Functions
+    // Admin
     // -------------------------------------------------------------------------
 
-    /// @notice Admin setup for reserve registry and initial indexes.
+    /// @notice Registers a new reserve with its tokens, strategy, and risk params.
+    ///         Can only be called by the owner and only once per asset.
     function initReserve(
         address asset,
         address aToken,
         address debtToken,
+        address interestRateStrategy,
         uint8 assetDecimals,
         uint16 ltvBps,
         uint16 liquidationThresholdBps,
@@ -85,18 +125,20 @@ contract LendingPool is ILendingPool, Ownable {
         require(asset != address(0), "ASSET_ZERO");
         require(aToken != address(0), "ATOKEN_ZERO");
         require(debtToken != address(0), "DEBT_TOKEN_ZERO");
+        require(interestRateStrategy != address(0), "STRATEGY_ZERO");
         require(assetDecimals <= 18, "DECIMALS_TOO_HIGH");
-
-        ReserveData storage r = reserves[asset];
-        require(address(r.aToken) == address(0), "RESERVE_EXISTS");
         require(liquidationThresholdBps <= 10_000, "BAD_LIQ_THRESHOLD");
         require(ltvBps <= liquidationThresholdBps, "BAD_LTV");
         require(liquidationBonusBps >= 10_000, "BAD_LIQ_BONUS");
         require(liquidationBonusBps <= 12_000, "BAD_LIQ_BONUS");
         require(reserveFactorBps <= 10_000, "BAD_RESERVE_FACTOR");
 
+        ReserveData storage r = _reserves[asset];
+        require(address(r.aToken) == address(0), "RESERVE_EXISTS");
+
         r.aToken = IAToken(aToken);
         r.variableDebtToken = IVariableDebtToken(debtToken);
+        r.interestRateStrategy = IInterestRateStrategy(interestRateStrategy);
         r.assetDecimals = assetDecimals;
         r.liquidityIndexRay = RAY;
         r.borrowIndexRay = RAY;
@@ -110,60 +152,68 @@ contract LendingPool is ILendingPool, Ownable {
         r.liquidationBonusBps = liquidationBonusBps;
         r.reserveFactorBps = reserveFactorBps;
 
-        reserveList.push(asset);
-        emit ReserveInitialized(asset, aToken, debtToken);
+        _reserveList.push(asset);
+        emit ReserveInitialized(asset, aToken, debtToken, interestRateStrategy);
     }
 
+    // -------------------------------------------------------------------------
+    // Core User Actions
+    // -------------------------------------------------------------------------
+
+    /// @inheritdoc ILendingPool
     function deposit(address asset, uint256 amount) external override {
         require(amount > 0, "INVALID_AMOUNT");
-        ReserveData storage r = reserves[asset];
+        ReserveData storage r = _reserves[asset];
         require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
         require(r.isActive, "RESERVE_INACTIVE");
         require(!r.isFrozen, "RESERVE_FROZEN");
 
         _updateReserve(asset);
-        IERC20(asset).safeTransferFrom(msg.sender, address(r.aToken), amount);
 
-        uint256 scaledAmount = r.aToken.mint(
-            msg.sender,
-            amount,
-            r.liquidityIndexRay
-        );
+        IERC20(asset).safeTransferFrom(msg.sender, address(r.aToken), amount);
+        uint256 scaledAmount = r.aToken.mint(msg.sender, amount, r.liquidityIndexRay);
         require(scaledAmount > 0, "MINT_FAILED");
 
+        _updateInterestRates(asset, r);
         emit Deposit(msg.sender, asset, amount);
     }
 
+    /// @inheritdoc ILendingPool
+    /// @dev Passing `type(uint256).max` as `amount` withdraws the full aToken balance.
     function withdraw(address asset, uint256 amount) external override {
         require(amount > 0, "INVALID_AMOUNT");
-        ReserveData storage r = reserves[asset];
+        ReserveData storage r = _reserves[asset];
         require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
         require(r.isActive, "RESERVE_INACTIVE");
 
         _updateReserve(asset);
-        uint256 scaledAmount = r.aToken.burn(
-            msg.sender,
-            amount,
-            r.liquidityIndexRay
-        );
+
+        if (amount == type(uint256).max) {
+            amount = r.aToken.balanceOfWithIndex(msg.sender, r.liquidityIndexRay);
+        }
+        require(amount > 0, "INVALID_AMOUNT");
+
+        uint256 scaledAmount = r.aToken.burn(msg.sender, amount, r.liquidityIndexRay);
         require(scaledAmount > 0, "BURN_FAILED");
 
-        (, uint256 debtUsdWad, , uint256 liquidationThresholdUsdWad) =
-            _computeUserAccountData(msg.sender);
+        // Health check: if user has outstanding debt, ensure HF stays >= 1 after withdrawal
+        (, uint256 debtUsdWad, , uint256 liqThresholdUsdWad) = _computeUserAccountData(msg.sender);
         if (debtUsdWad > 0) {
-            uint256 healthFactorWad = liquidationThresholdUsdWad.divWadDown(
-                debtUsdWad
+            require(
+                liqThresholdUsdWad.divWadDown(debtUsdWad) >= WAD,
+                "HEALTH_FACTOR_TOO_LOW"
             );
-            require(healthFactorWad >= WAD, "HEALTH_FACTOR_TOO_LOW");
         }
 
         r.aToken.transferUnderlyingTo(msg.sender, amount);
+        _updateInterestRates(asset, r);
         emit Withdraw(msg.sender, asset, amount);
     }
 
+    /// @inheritdoc ILendingPool
     function borrow(address asset, uint256 amount) external override {
         require(amount > 0, "INVALID_AMOUNT");
-        ReserveData storage r = reserves[asset];
+        ReserveData storage r = _reserves[asset];
         require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
         require(r.isActive, "RESERVE_INACTIVE");
         require(!r.isFrozen, "RESERVE_FROZEN");
@@ -173,51 +223,43 @@ contract LendingPool is ILendingPool, Ownable {
         uint256 availableLiquidity = IERC20(asset).balanceOf(address(r.aToken));
         require(availableLiquidity >= amount, "INSUFFICIENT_LIQUIDITY");
 
-        (, uint256 debtUsdWad, uint256 maxBorrowUsdWad, ) =
-            _computeUserAccountData(msg.sender);
+        (, uint256 debtUsdWad, uint256 maxBorrowUsdWad, ) = _computeUserAccountData(msg.sender);
         uint256 borrowUsdWad = _assetToUsdWad(asset, amount);
-        require(
-            debtUsdWad + borrowUsdWad <= maxBorrowUsdWad,
-            "INSUFFICIENT_COLLATERAL"
-        );
+        require(debtUsdWad + borrowUsdWad <= maxBorrowUsdWad, "INSUFFICIENT_COLLATERAL");
 
-        uint256 scaledAmount = r.variableDebtToken.mint(
-            msg.sender,
-            amount,
-            r.borrowIndexRay
-        );
+        uint256 scaledAmount = r.variableDebtToken.mint(msg.sender, amount, r.borrowIndexRay);
         require(scaledAmount > 0, "MINT_FAILED");
 
         r.aToken.transferUnderlyingTo(msg.sender, amount);
+        _updateInterestRates(asset, r);
         emit Borrow(msg.sender, asset, amount);
     }
 
+    /// @inheritdoc ILendingPool
+    /// @dev Passing `type(uint256).max` as `amount` repays all outstanding debt.
     function repay(address asset, uint256 amount) external override {
         require(amount > 0, "INVALID_AMOUNT");
-        ReserveData storage r = reserves[asset];
+        ReserveData storage r = _reserves[asset];
         require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
         require(r.isActive, "RESERVE_INACTIVE");
 
         _updateReserve(asset);
 
-        uint256 debt = r.variableDebtToken.balanceOfWithIndex(
-            msg.sender,
-            r.borrowIndexRay
-        );
-        uint256 payback = amount > debt ? debt : amount;
-        require(payback > 0, "NO_DEBT");
+        uint256 debt = r.variableDebtToken.balanceOfWithIndex(msg.sender, r.borrowIndexRay);
+        require(debt > 0, "NO_DEBT");
 
-        uint256 burnedScaledAmount = r.variableDebtToken.burn(
-            msg.sender,
-            payback,
-            r.borrowIndexRay
-        );
-        require(burnedScaledAmount > 0, "BURN_FAILED");
+        // Cap payback to actual debt (also handles uint256.max safely)
+        uint256 payback = amount >= debt ? debt : amount;
+
+        uint256 burnedScaled = r.variableDebtToken.burn(msg.sender, payback, r.borrowIndexRay);
+        require(burnedScaled > 0, "BURN_FAILED");
 
         IERC20(asset).safeTransferFrom(msg.sender, address(r.aToken), payback);
+        _updateInterestRates(asset, r);
         emit Repay(msg.sender, asset, payback);
     }
 
+    /// @inheritdoc ILendingPool
     function liquidate(
         address collateralAsset,
         address debtAsset,
@@ -227,84 +269,91 @@ contract LendingPool is ILendingPool, Ownable {
         require(debtToCover > 0, "INVALID_AMOUNT");
         require(user != address(0), "USER_ZERO");
 
-        ReserveData storage c = reserves[collateralAsset];
-        ReserveData storage d = reserves[debtAsset];
-        require(address(c.aToken) != address(0), "COLLATERAL_RESERVE_NOT_FOUND");
-        require(address(d.aToken) != address(0), "DEBT_RESERVE_NOT_FOUND");
-        require(c.isActive && d.isActive, "RESERVE_INACTIVE");
-        require(!c.isFrozen && !d.isFrozen, "RESERVE_FROZEN");
+        _validateAndUpdateLiquidation(collateralAsset, debtAsset, user);
+
+        ReserveData storage col = _reserves[collateralAsset];
+        ReserveData storage dbt = _reserves[debtAsset];
+
+        (uint256 debtCovered, uint256 collateralToSeize) =
+            _computeLiquidationAmounts(collateralAsset, debtAsset, user, debtToCover, col, dbt);
+
+        require(debtCovered > 0, "INVALID_AMOUNT");
+
+        // Transfer debt from liquidator → debt reserve, then burn both tokens
+        IERC20(debtAsset).safeTransferFrom(msg.sender, address(dbt.aToken), debtCovered);
+        require(dbt.variableDebtToken.burn(user, debtCovered, dbt.borrowIndexRay) > 0, "BURN_FAILED");
+        require(col.aToken.burn(user, collateralToSeize, col.liquidityIndexRay) > 0, "BURN_FAILED");
+
+        // Transfer seized collateral to liquidator
+        col.aToken.transferUnderlyingTo(msg.sender, collateralToSeize);
+
+        // Refresh rates on both reserves
+        _updateInterestRates(debtAsset, dbt);
+        if (debtAsset != collateralAsset) {
+            _updateInterestRates(collateralAsset, col);
+        }
+
+        emit Liquidation(msg.sender, user, collateralAsset, debtAsset, debtCovered, collateralToSeize);
+    }
+
+    /// @dev Validates reserves and health factor, then accrues indexes.
+    function _validateAndUpdateLiquidation(
+        address collateralAsset,
+        address debtAsset,
+        address user
+    ) private {
+        ReserveData storage col = _reserves[collateralAsset];
+        ReserveData storage dbt = _reserves[debtAsset];
+        require(address(col.aToken) != address(0), "COLLATERAL_RESERVE_NOT_FOUND");
+        require(address(dbt.aToken) != address(0), "DEBT_RESERVE_NOT_FOUND");
+        require(col.isActive && dbt.isActive, "RESERVE_INACTIVE");
+        // NOTE: Liquidation must work even on frozen reserves to maintain protocol solvency.
+        // isFrozen only blocks new deposits/borrows, not liquidations.
 
         _updateReserve(collateralAsset);
-        if (debtAsset != collateralAsset) {
-            _updateReserve(debtAsset);
-        }
+        if (debtAsset != collateralAsset) _updateReserve(debtAsset);
 
-        uint256 healthFactorWad = this.getHealthFactor(user);
-        require(healthFactorWad < WAD, "HEALTHY_POSITION");
+        (, uint256 debtUsdWad, , uint256 liqThresholdUsdWad) = _computeUserAccountData(user);
+        require(debtUsdWad > 0, "NO_DEBT");
+        require(liqThresholdUsdWad.divWadDown(debtUsdWad) < WAD, "HEALTHY_POSITION");
+    }
 
-        uint256 debtCovered = d.variableDebtToken.balanceOfWithIndex(user, d.borrowIndexRay);
-        require(debtCovered > 0, "NO_DEBT");
-        if (debtToCover < debtCovered) {
-            debtCovered = debtToCover;
-        }
+    /// @dev Computes the actual debt covered and collateral seized amounts,
+    ///      capping both to available balances.
+    function _computeLiquidationAmounts(
+        address collateralAsset,
+        address debtAsset,
+        address user,
+        uint256 debtToCover,
+        ReserveData storage col,
+        ReserveData storage dbt
+    ) private view returns (uint256 debtCovered, uint256 collateralToSeize) {
+        uint256 userDebt = dbt.variableDebtToken.balanceOfWithIndex(user, dbt.borrowIndexRay);
+        debtCovered = debtToCover >= userDebt ? userDebt : debtToCover;
 
-        uint256 userCollateral = c.aToken.balanceOfWithIndex(user, c.liquidityIndexRay);
+        uint256 userCollateral = col.aToken.balanceOfWithIndex(user, col.liquidityIndexRay);
         require(userCollateral > 0, "NO_COLLATERAL");
 
-        uint256 collateralToSeize = _usdWadToAssetAmount(
+        collateralToSeize = _usdWadToAssetAmount(
             collateralAsset,
-            _assetToUsdWad(debtAsset, debtCovered).mulBpsDown(c.liquidationBonusBps)
+            _assetToUsdWad(debtAsset, debtCovered).mulBpsDown(col.liquidationBonusBps)
         );
+
         if (collateralToSeize > userCollateral) {
             collateralToSeize = userCollateral;
             debtCovered = _usdWadToAssetAmount(
                 debtAsset,
-                _assetToUsdWad(collateralAsset, collateralToSeize).divBpsDown(c.liquidationBonusBps)
+                _assetToUsdWad(collateralAsset, collateralToSeize).divBpsDown(col.liquidationBonusBps)
             );
         }
-
-        require(debtCovered > 0, "INVALID_AMOUNT");
-        IERC20(debtAsset).safeTransferFrom(msg.sender, address(d.aToken), debtCovered);
-        require(
-            d.variableDebtToken.burn(user, debtCovered, d.borrowIndexRay) > 0,
-            "BURN_FAILED"
-        );
-        require(
-            c.aToken.burn(user, collateralToSeize, c.liquidityIndexRay) > 0,
-            "BURN_FAILED"
-        );
-
-        c.aToken.transferUnderlyingTo(msg.sender, collateralToSeize);
-        emit Liquidation(user, collateralAsset, debtAsset, debtCovered, collateralToSeize);
     }
 
     // -------------------------------------------------------------------------
-    // Main View Functions
+    // View Functions — Reserve Data
     // -------------------------------------------------------------------------
 
-    // function getReserveIndexes(
-    //     address asset
-    // )
-    //     external
-    //     view
-    //     returns (
-    //         uint256 liquidityIndexRay,
-    //         uint256 borrowIndexRay,
-    //         uint40 lastUpdateTimestamp
-    //     )
-    // {
-    //     ReserveData storage r = reserves[asset];
-    //     return (r.liquidityIndexRay, r.borrowIndexRay, r.lastUpdateTimestamp);
-    // }
-
-    // function getReserveAddresses(
-    //     address asset
-    // ) external view returns (address aToken, address debtToken) {
-    //     ReserveData storage r = reserves[asset];
-    //     return (address(r.aToken), address(r.variableDebtToken));
-    // }
-
-    function getReserveData(address asset) external view returns(
+    /// @notice Returns full reserve configuration and **live** (current-block) indexes.
+    function getReserveData(address asset) external view returns (
         address aToken,
         address debtToken,
         uint8 assetDecimals,
@@ -318,7 +367,7 @@ contract LendingPool is ILendingPool, Ownable {
         uint256 borrowIndexRay,
         uint40 lastUpdateTimestamp
     ) {
-        ReserveData storage r = reserves[asset];
+        ReserveData storage r = _reserves[asset];
         return (
             address(r.aToken),
             address(r.variableDebtToken),
@@ -329,244 +378,231 @@ contract LendingPool is ILendingPool, Ownable {
             r.liquidationThresholdBps,
             r.liquidationBonusBps,
             r.reserveFactorBps,
-            r.liquidityIndexRay,
-            r.borrowIndexRay,
+            _currentLiquidityIndex(r),
+            _currentBorrowIndex(r),
             r.lastUpdateTimestamp
         );
     }
 
+    /// @notice Returns the current per-second interest rates for a reserve.
+    function getReserveRates(address asset) external view returns (
+        uint256 liquidityRateRayPerSecond,
+        uint256 borrowRateRayPerSecond
+    ) {
+        ReserveData storage r = _reserves[asset];
+        return (r.liquidityRateRayPerSecond, r.borrowRateRayPerSecond);
+    }
+
+    /// @notice Returns the interest rate strategy contract for a reserve.
+    function getReserveInterestRateStrategy(address asset) external view returns (address) {
+        return address(_reserves[asset].interestRateStrategy);
+    }
+
+    /// @notice Returns the list of all initialized reserve asset addresses.
+    function getReserveList() external view returns (address[] memory) {
+        return _reserveList;
+    }
+
+    /// @notice Returns the number of initialized reserves.
+    function getReserveCount() external view returns (uint256) {
+        return _reserveList.length;
+    }
+
+    /// @notice Returns the asset address at a given index in the reserve list.
+    function getReserveAt(uint256 index) external view returns (address) {
+        return _reserveList[index];
+    }
+
+    // -------------------------------------------------------------------------
+    // View Functions — User Account Data
+    // -------------------------------------------------------------------------
+
+    /// @inheritdoc ILendingPool
     function getHealthFactor(address user) external view override returns (uint256) {
-        (, uint256 debtUsdWad, , uint256 liquidationThresholdUsdWad) =
+        (, uint256 debtUsdWad, , uint256 liqThresholdUsdWad) = _computeUserAccountData(user);
+        if (debtUsdWad == 0) return type(uint256).max;
+        return liqThresholdUsdWad.divWadDown(debtUsdWad);
+    }
+
+    /// @inheritdoc ILendingPool
+    function getUserAccountData(address user) external view override returns (
+        uint256 collateralUsdWad,
+        uint256 debtUsdWad,
+        uint256 maxBorrowUsdWad,
+        uint256 healthFactorWad
+    ) {
+        uint256 liqThresholdUsdWad;
+        (collateralUsdWad, debtUsdWad, maxBorrowUsdWad, liqThresholdUsdWad) =
             _computeUserAccountData(user);
 
-        if (debtUsdWad == 0) {
-            return type(uint256).max;
-        }
-        return liquidationThresholdUsdWad.divWadDown(debtUsdWad);
+        healthFactorWad = debtUsdWad == 0
+            ? type(uint256).max
+            : liqThresholdUsdWad.divWadDown(debtUsdWad);
     }
 
-    function getUserAccountData(
-        address user
-    )
-        external
-        view
-        override
-        returns (
-            uint256 collateralUsdWad,
-            uint256 debtUsdWad,
-            uint256 maxBorrowUsdWad,
-            uint256 healthFactorWad
-        )
-    {
-        uint256 liquidationThresholdUsdWad;
-        (
-            collateralUsdWad,
-            debtUsdWad,
-            maxBorrowUsdWad,
-            liquidationThresholdUsdWad
-        ) = _computeUserAccountData(user);
-
-        if (debtUsdWad == 0) {
-            healthFactorWad = type(uint256).max;
-        } else {
-            healthFactorWad = liquidationThresholdUsdWad.divWadDown(debtUsdWad);
-        }
-    }
-
-    function getUserReserveData(
-        address user,
-        address asset
-    )
-        external
-        view
-        returns (
-            uint256 collateralAmount,
-            uint256 debtAmount,
-            uint256 collateralUsdWad,
-            uint256 debtUsdWad
-        )
-    {
-        ReserveData storage r = reserves[asset];
+    /// @notice Returns a user's collateral and debt amounts for a specific reserve.
+    function getUserReserveData(address user, address asset) external view returns (
+        uint256 collateralAmount,
+        uint256 debtAmount,
+        uint256 collateralUsdWad,
+        uint256 debtUsdWad
+    ) {
+        ReserveData storage r = _reserves[asset];
         require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
 
-        collateralAmount = r.aToken.balanceOfWithIndex(
-            user,
-            r.liquidityIndexRay
-        );
-        debtAmount = r.variableDebtToken.balanceOfWithIndex(
-            user,
-            r.borrowIndexRay
-        );
+        uint256 liveLiquidityIndex = _currentLiquidityIndex(r);
+        uint256 liveBorrowIndex = _currentBorrowIndex(r);
 
-        collateralUsdWad = collateralAmount > 0
-            ? _assetToUsdWad(asset, collateralAmount)
-            : 0;
+        collateralAmount = r.aToken.balanceOfWithIndex(user, liveLiquidityIndex);
+        debtAmount = r.variableDebtToken.balanceOfWithIndex(user, liveBorrowIndex);
+
+        collateralUsdWad = collateralAmount > 0 ? _assetToUsdWad(asset, collateralAmount) : 0;
         debtUsdWad = debtAmount > 0 ? _assetToUsdWad(asset, debtAmount) : 0;
     }
 
-    function getReserveList() external view returns (address[] memory) {
-    return reserveList;
-    }
-
-    function getReserveCount() external view returns (uint256) {
-    return reserveList.length;
-    }
-
-    function getReserveAt(uint256 index) external view returns (address) {
-    return reserveList[index];
-    }   
-
     // -------------------------------------------------------------------------
-    // Internal Helpers
+    // Internal — Reserve Index Management
     // -------------------------------------------------------------------------
 
-    function _computeUserAccountData(
-        address user
-    )
-        internal
-        view
-        returns (
-            uint256 collateralUsdWad,
-            uint256 debtUsdWad,
-            uint256 maxBorrowUsdWad,
-            uint256 liquidationThresholdUsdWad
-        )
-    {
-        for (uint256 i = 0; i < reserveList.length; i++) {
-            address asset = reserveList[i];
-            ReserveData storage r = reserves[asset];
-            if (address(r.aToken) == address(0)) {
-                continue;
-            }
-
-            uint256 collateralAmount = r.aToken.balanceOfWithIndex(
-                user,
-                r.liquidityIndexRay
-            );
-            uint256 debtAmount = r.variableDebtToken.balanceOfWithIndex(
-                user,
-                r.borrowIndexRay
-            );
-
-            // Skip reserves where user has no position so missing oracle price
-            // on unrelated reserves does not break account-data reads.
-            if (collateralAmount == 0 && debtAmount == 0) {
-                continue;
-            }
-
-            uint256 collateralUsd = collateralAmount > 0
-                ? _assetToUsdWad(asset, collateralAmount)
-                : 0;
-            uint256 debtUsd = debtAmount > 0
-                ? _assetToUsdWad(asset, debtAmount)
-                : 0;
-
-            collateralUsdWad += collateralUsd;
-            debtUsdWad += debtUsd;
-            maxBorrowUsdWad += collateralUsd.mulBpsDown(r.ltvBps);
-            liquidationThresholdUsdWad += collateralUsd.mulBpsDown(
-                r.liquidationThresholdBps
-            );
-        }
-    }
-
-    /// @notice Reserve index updater. Must be called first in state-changing flows.
+    /// @dev Accrues index interest up to the current block and updates storage.
+    ///      Must be called at the start of every state-changing function.
     function _updateReserve(address asset) internal {
-        ReserveData storage r = reserves[asset];
-        require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
+        ReserveData storage r = _reserves[asset];
 
         uint40 currentTimestamp = uint40(block.timestamp);
         uint256 dt = uint256(currentTimestamp) - uint256(r.lastUpdateTimestamp);
-        if (dt == 0) {
-            return;
-        }
+        if (dt == 0) return;
 
-        _accrueIndexes(r, dt);
+        r.liquidityIndexRay = _currentLiquidityIndex(r);
+        r.borrowIndexRay = _currentBorrowIndex(r);
         r.lastUpdateTimestamp = currentTimestamp;
+    }
+
+    // -------------------------------------------------------------------------
+    // Internal — Interest Rate Updates
+    // -------------------------------------------------------------------------
+
+    /// @dev Recalculates interest rates based on current utilization, stores them,
+    ///      and emits the ReserveUpdated event with the new rates.
+    ///      Must be called after every action that changes liquidity or debt.
+    function _updateInterestRates(address asset, ReserveData storage r) internal {
+        uint256 availableLiquidity = IERC20(asset).balanceOf(address(r.aToken));
+        uint256 totalDebt = r.variableDebtToken.totalSupplyWithIndex(r.borrowIndexRay);
+
+        (uint256 newLiquidityRate, uint256 newBorrowRate) =
+            r.interestRateStrategy.calculateInterestRates(
+                availableLiquidity,
+                totalDebt,
+                r.reserveFactorBps
+            );
+
+        r.liquidityRateRayPerSecond = newLiquidityRate;
+        r.borrowRateRayPerSecond = newBorrowRate;
+
         emit ReserveUpdated(
             asset,
             r.liquidityIndexRay,
             r.borrowIndexRay,
-            currentTimestamp
+            newLiquidityRate,
+            newBorrowRate,
+            r.lastUpdateTimestamp
         );
     }
 
-    function _accrueIndexes(ReserveData storage r, uint256 dt) internal {
-        if (dt == 0) {
-            return;
-        }
+    // -------------------------------------------------------------------------
+    // Internal — Account Data
+    // -------------------------------------------------------------------------
 
-        if (r.liquidityRateRayPerSecond != 0) {
-            uint256 liquidityDelta = r.liquidityIndexRay.mulRayDown(
-                r.liquidityRateRayPerSecond * dt
-            );
-            r.liquidityIndexRay = r.liquidityIndexRay + liquidityDelta;
-        }
+    /// @dev Computes aggregated account data across all reserves for `user`.
+    ///      Uses live (current-block) indexes via `_currentLiquidityIndex` /
+    ///      `_currentBorrowIndex` so that cross-reserve risk checks are accurate
+    ///      even if some reserves haven't been touched recently.
+    function _computeUserAccountData(address user) internal view returns (
+        uint256 collateralUsdWad,
+        uint256 debtUsdWad,
+        uint256 maxBorrowUsdWad,
+        uint256 liquidationThresholdUsdWad
+    ) {
+        uint256 len = _reserveList.length;
+        for (uint256 i = 0; i < len; i++) {
+            address asset = _reserveList[i];
+            ReserveData storage r = _reserves[asset];
 
-        if (r.borrowRateRayPerSecond != 0) {
-            uint256 borrowDelta = r.borrowIndexRay.mulRayDown(
-                r.borrowRateRayPerSecond * dt
-            );
-            r.borrowIndexRay = r.borrowIndexRay + borrowDelta;
+            uint256 collateralAmount = r.aToken.balanceOfWithIndex(user, _currentLiquidityIndex(r));
+            uint256 debtAmount = r.variableDebtToken.balanceOfWithIndex(user, _currentBorrowIndex(r));
+
+            // Skip reserves where the user has no position — avoids requiring oracle price
+            // for assets the user has never interacted with.
+            if (collateralAmount == 0 && debtAmount == 0) continue;
+
+            uint256 colUsd = collateralAmount > 0 ? _assetToUsdWad(asset, collateralAmount) : 0;
+            uint256 debtUsd = debtAmount > 0 ? _assetToUsdWad(asset, debtAmount) : 0;
+
+            collateralUsdWad += colUsd;
+            debtUsdWad += debtUsd;
+            maxBorrowUsdWad += colUsd.mulBpsDown(r.ltvBps);
+            liquidationThresholdUsdWad += colUsd.mulBpsDown(r.liquidationThresholdBps);
         }
     }
 
-    /// @notice Converts an `amount` of `asset` to USD WAD using oracle price decimals.
+    // -------------------------------------------------------------------------
+    // Internal — Live Index Helpers (View)
+    // -------------------------------------------------------------------------
+
+    /// @dev Returns the liquidity index accrued to the current block (read-only).
+    ///      Uses `accrueIndexLinearRay` for overflow-safe 512-bit `rate * dt`.
+    function _currentLiquidityIndex(ReserveData storage r) internal view returns (uint256) {
+        uint256 dt = uint256(uint40(block.timestamp)) - uint256(r.lastUpdateTimestamp);
+        return MathUtils.accrueIndexLinearRay(r.liquidityIndexRay, r.liquidityRateRayPerSecond, dt);
+    }
+
+    /// @dev Returns the borrow index accrued to the current block (read-only).
+    ///      Uses `accrueIndexLinearRay` for overflow-safe 512-bit `rate * dt`.
+    function _currentBorrowIndex(ReserveData storage r) internal view returns (uint256) {
+        uint256 dt = uint256(uint40(block.timestamp)) - uint256(r.lastUpdateTimestamp);
+        return MathUtils.accrueIndexLinearRay(r.borrowIndexRay, r.borrowRateRayPerSecond, dt);
+    }
+
+    // -------------------------------------------------------------------------
+    // Internal — Price / Decimal Conversion
+    // -------------------------------------------------------------------------
+
+    /// @dev Converts an asset amount to USD WAD using the price oracle.
     function _assetToUsdWad(address asset, uint256 amount) internal view returns (uint256) {
-        ReserveData storage r = reserves[asset];
-        require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
-
-        uint256 amountWad = _amountTo18(amount, r.assetDecimals);
-        uint256 price = priceOracle.getAssetPrice(asset);
-        uint8 priceDecimals = priceOracle.PRICE_DECIMALS();
-
-        uint256 priceWad;
-        if (priceDecimals == 18) {
-            priceWad = price;
-        } else if (priceDecimals < 18) {
-            priceWad = price * (10 ** (18 - priceDecimals));
-        } else {
-            priceWad = price / (10 ** (priceDecimals - 18));
-        }
-
+        ReserveData storage r = _reserves[asset];
+        uint256 amountWad = _scaleToWad(amount, r.assetDecimals);
+        uint256 priceWad = _getPriceWad(asset);
         return amountWad.mulWadDown(priceWad);
     }
-    function _usdWadToAssetAmount(address asset, uint256 usdWadAmount) internal view returns (uint256) {
-        ReserveData storage r = reserves[asset];
-        require(address(r.aToken) != address(0), "RESERVE_NOT_FOUND");
 
-        uint256 price = priceOracle.getAssetPrice(asset);
-        uint8 priceDecimals = priceOracle.PRICE_DECIMALS();
-        uint256 priceWad;
-        if (priceDecimals == 18) {
-            priceWad = price;
-        } else if (priceDecimals < 18) {
-            priceWad = price * (10 ** (18 - priceDecimals));
-        } else {
-            priceWad = price / (10 ** (priceDecimals - 18));
-        }
-
-        uint256 amountWad = usdWadAmount.divWadDown(priceWad);
-        return _amountFrom18(amountWad, r.assetDecimals);
+    /// @dev Converts a USD WAD amount to an asset token amount.
+    function _usdWadToAssetAmount(address asset, uint256 usdWad) internal view returns (uint256) {
+        ReserveData storage r = _reserves[asset];
+        uint256 priceWad = _getPriceWad(asset);
+        uint256 amountWad = usdWad.divWadDown(priceWad);
+        return _scaleFromWad(amountWad, r.assetDecimals);
     }
 
-    function _amountTo18(uint256 amount, uint8 assetDecimals) internal pure returns (uint256) {
-        if (assetDecimals == 18) {
-            return amount;
-        }
-        if (assetDecimals < 18) {
-            return amount * (10 ** (18 - assetDecimals));
-        }
+    /// @dev Fetches oracle price and normalizes it to WAD (1e18) regardless of oracle decimals.
+    function _getPriceWad(address asset) internal view returns (uint256) {
+        uint256 price = priceOracle.getAssetPrice(asset);
+        uint8 priceDec = priceOracle.PRICE_DECIMALS();
+        if (priceDec == 18) return price;
+        if (priceDec < 18) return price * (10 ** (18 - priceDec));
+        return price / (10 ** (priceDec - 18));
+    }
+
+    /// @dev Scales `amount` from `assetDecimals` to 18 decimals.
+    function _scaleToWad(uint256 amount, uint8 assetDecimals) internal pure returns (uint256) {
+        if (assetDecimals == 18) return amount;
+        if (assetDecimals < 18) return amount * (10 ** (18 - assetDecimals));
         return amount / (10 ** (assetDecimals - 18));
     }
 
-    function _amountFrom18(uint256 amount, uint8 assetDecimals) internal pure returns (uint256) {
-        if (assetDecimals == 18) {
-            return amount;
-        }
-        if (assetDecimals < 18) {
-            return amount / (10 ** (18 - assetDecimals));
-        }
+    /// @dev Scales `amount` from 18 decimals down to `assetDecimals`.
+    function _scaleFromWad(uint256 amount, uint8 assetDecimals) internal pure returns (uint256) {
+        if (assetDecimals == 18) return amount;
+        if (assetDecimals < 18) return amount / (10 ** (18 - assetDecimals));
         return amount * (10 ** (assetDecimals - 18));
     }
 }

@@ -1,21 +1,3 @@
-// Purpose:
-// - Tong hop du lieu market cho bang: reserve list, reserve data,
-//   token meta (name/symbol), total deposits, available liquidity.
-// Input:
-// - Khong can input (lay tu LendingPool).
-// Guard:
-// - Chi batch query khi co danh sach reserve va reserve data.
-// Contract:
-// - LendingPool.getReserveList()
-// - LendingPool.getReserveData(asset)
-// - ERC20.symbol(), ERC20.name()
-// - ERC20.balanceOf(aToken)
-// - AToken.totalSupplyWithIndex(liquidityIndexRay)
-// Transform:
-// - Map ket qua ve theo asset address.
-// Return:
-// - { reserves, reserveDataByAsset, tokenMetaByAsset, marketStatsByAsset, isLoading, error }
-
 import { useMemo } from "react";
 import { useReadContract, useReadContracts } from "wagmi";
 import {
@@ -23,7 +5,11 @@ import {
   ERC20_ABI,
   LENDING_POOL_ABI,
   LENDING_POOL_ADDRESS,
+  VARIABLE_DEBT_TOKEN_ABI,
 } from "../../config/contracts";
+
+const RAY = 1e27;
+const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 
 type ReserveData = {
   aToken: `0x${string}`;
@@ -42,6 +28,13 @@ type ReserveData = {
 
 type ReserveDataMap = Record<`0x${string}`, ReserveData>;
 
+type ReserveRates = {
+  supplyAPY: number;
+  borrowAPY: number;
+};
+
+type ReserveRatesMap = Record<`0x${string}`, ReserveRates>;
+
 type ReserveDataTuple = [
   `0x${string}`,
   `0x${string}`,
@@ -57,6 +50,8 @@ type ReserveDataTuple = [
   bigint,
 ];
 
+type ReserveRatesTuple = [bigint, bigint];
+
 type TokenMeta = {
   name: string;
   symbol: string;
@@ -67,6 +62,7 @@ type TokenMetaMap = Record<`0x${string}`, TokenMeta>;
 type MarketStats = {
   availableLiquidity: bigint;
   totalDeposits: bigint;
+  totalBorrowed: bigint;
 };
 
 type MarketStatsMap = Record<`0x${string}`, MarketStats>;
@@ -75,6 +71,10 @@ type ContractResult = {
   status: "success" | "failure";
   result?: unknown;
 };
+
+function rayPerSecondToApy(rateRayPerSecond: bigint): number {
+  return (Number(rateRayPerSecond) * SECONDS_PER_YEAR * 100) / RAY;
+}
 
 function useMarketOverview() {
   const listQuery = useReadContract({
@@ -92,6 +92,16 @@ function useMarketOverview() {
       address: LENDING_POOL_ADDRESS,
       abi: LENDING_POOL_ABI,
       functionName: "getReserveData",
+      args: [asset],
+    })),
+    query: { enabled: reserves.length > 0 },
+  });
+
+  const reserveRatesQuery = useReadContracts({
+    contracts: reserves.map((asset) => ({
+      address: LENDING_POOL_ADDRESS,
+      abi: LENDING_POOL_ABI,
+      functionName: "getReserveRates",
       args: [asset],
     })),
     query: { enabled: reserves.length > 0 },
@@ -144,6 +154,30 @@ function useMarketOverview() {
     return map;
   }, [reserveDataQuery.data, reserves]);
 
+  const ratesByAsset = useMemo(() => {
+    if (!reserveRatesQuery.data) return undefined;
+    const map: ReserveRatesMap = {};
+
+    const getRatesResult = (entry: unknown) => {
+      const typed = entry as ContractResult;
+      if (!typed || typed.status !== "success") return null;
+      return typed.result as ReserveRatesTuple;
+    };
+
+    reserveRatesQuery.data.forEach((result, index) => {
+      const asset = reserves[index];
+      const tuple = getRatesResult(result);
+      if (!asset || !tuple) return;
+      const [liquidityRateRayPerSecond, borrowRateRayPerSecond] = tuple;
+      map[asset] = {
+        supplyAPY: rayPerSecondToApy(liquidityRateRayPerSecond),
+        borrowAPY: rayPerSecondToApy(borrowRateRayPerSecond),
+      };
+    });
+
+    return map;
+  }, [reserveRatesQuery.data, reserves]);
+
   const metaCalls = useMemo(() => {
     if (!reserves.length) return [];
     return reserves.flatMap((asset) => [
@@ -152,11 +186,18 @@ function useMarketOverview() {
     ]);
   }, [reserves]);
 
-  const statsCalls = useMemo(() => {
+  const statsCallAssets = useMemo(() => {
     if (!reserves.length || !reserveDataByAsset) return [];
-    return reserves.flatMap((asset) => {
+    return reserves.filter((asset) => {
       const reserve = reserveDataByAsset[asset];
-      if (!reserve?.aToken) return [];
+      return !!reserve?.aToken && !!reserve?.debtToken;
+    });
+  }, [reserves, reserveDataByAsset]);
+
+  const statsCalls = useMemo(() => {
+    if (!statsCallAssets.length || !reserveDataByAsset) return [];
+    return statsCallAssets.flatMap((asset) => {
+      const reserve = reserveDataByAsset[asset];
       return [
         {
           address: asset,
@@ -170,9 +211,15 @@ function useMarketOverview() {
           functionName: "totalSupplyWithIndex",
           args: [reserve.liquidityIndexRay],
         },
+        {
+          address: reserve.debtToken,
+          abi: VARIABLE_DEBT_TOKEN_ABI,
+          functionName: "totalSupplyWithIndex",
+          args: [reserve.borrowIndexRay],
+        },
       ];
     });
-  }, [reserves, reserveDataByAsset]);
+  }, [statsCallAssets, reserveDataByAsset]);
 
   const metaQuery = useReadContracts({
     contracts: metaCalls,
@@ -206,45 +253,72 @@ function useMarketOverview() {
   }, [metaQuery.data, reserves]);
 
   const marketStatsByAsset = useMemo(() => {
-    if (!statsQuery.data || !reserves.length || !reserveDataByAsset) {
+    if (
+      !statsQuery.data ||
+      statsCallAssets.length === 0 ||
+      !reserveDataByAsset
+    ) {
       return undefined;
     }
-
     const map: MarketStatsMap = {};
-
-    const getResult = (entry: unknown) => {
+    const getResult = (entry: unknown): bigint | null => {
       const typed = entry as ContractResult;
-      if (!typed || typed.status !== "success") return null;
-      return typed.result as bigint;
+      if (
+        !typed ||
+        typed.status !== "success" ||
+        typeof typed.result !== "bigint"
+      ) {
+        return null;
+      }
+      return typed.result;
     };
-
-    for (let i = 0; i < reserves.length; i++) {
-      const asset = reserves[i];
+    for (let i = 0; i < statsCallAssets.length; i++) {
+      const asset = statsCallAssets[i];
+      if (!asset) {
+        continue;
+      }
       const reserve = reserveDataByAsset[asset];
-      if (!reserve?.aToken) continue;
-      const availableLiquidity = getResult(statsQuery.data[i * 2]);
-      const totalDeposits = getResult(statsQuery.data[i * 2 + 1]);
-      if (availableLiquidity === null || totalDeposits === null) continue;
-      map[asset] = { availableLiquidity, totalDeposits };
+      if (!reserve?.aToken) {
+        continue;
+      }
+      const availableLiquidity = getResult(statsQuery.data[i * 3]);
+      const totalDeposits = getResult(statsQuery.data[i * 3 + 1]);
+      const totalBorrowed = getResult(statsQuery.data[i * 3 + 2]);
+      if (
+        availableLiquidity === null ||
+        totalDeposits === null ||
+        totalBorrowed === null
+      ) {
+        continue;
+      }
+
+      map[asset] = {
+        availableLiquidity,
+        totalDeposits,
+        totalBorrowed,
+      };
     }
 
     return map;
-  }, [statsQuery.data, reserves, reserveDataByAsset]);
+  }, [statsQuery.data, statsCallAssets, reserveDataByAsset]);
 
   const isLoading =
     listQuery.isLoading ||
     reserveDataQuery.isLoading ||
+    reserveRatesQuery.isLoading ||
     metaQuery.isLoading ||
     statsQuery.isLoading;
   const error =
     listQuery.error ||
     reserveDataQuery.error ||
+    reserveRatesQuery.error ||
     metaQuery.error ||
     statsQuery.error;
 
   return {
     reserves,
     reserveDataByAsset,
+    ratesByAsset,
     tokenMetaByAsset,
     marketStatsByAsset,
     isLoading,

@@ -5,7 +5,8 @@
   "description": "",
   "scripts": {
     "test": "npx hardhat test",
-    "deploy:local": "npx hardhat run scripts/deploy-local.ts --network localhost"
+    "deploy:local": "npx hardhat run scripts/deploy-local.ts --network localhost",
+    "deploy:sepolia": "npx hardhat run scripts/deploy-sepolia.ts --network sepolia"
   },
   "license": "ISC",
   "devDependencies": {
@@ -28,7 +29,9 @@
     "bn.js": "^5.2.3"
   },
   "dependencies": {
+    "@chainlink/contracts": "^1.5.0",
     "@openzeppelin/contracts": "^5.4.0",
+    "dotenv": "^17.4.2",
     "ethers": "^6.16.0"
   }
 }

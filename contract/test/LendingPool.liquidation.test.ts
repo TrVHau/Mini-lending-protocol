@@ -10,6 +10,7 @@ describe("LendingPool - Liquidation", function () {
   let pool: any;
   let aToken: any;
   let debtToken: any;
+  let interestRateStrategy: any;
 
   const DECIMALS = 8;
   const ONE = ethers.parseUnits("1", DECIMALS);
@@ -27,6 +28,16 @@ describe("LendingPool - Liquidation", function () {
     pool = await LendingPool.deploy(
       await oracle.getAddress(),
       await owner.getAddress(),
+    );
+
+    const InterestRateStrategy = await ethers.getContractFactory(
+      "DefaultInterestRateStrategy",
+    );
+    interestRateStrategy = await InterestRateStrategy.deploy(
+      0,
+      ethers.parseUnits("0.04", 18),
+      ethers.parseUnits("0.75", 18),
+      ethers.parseUnits("0.8", 27),
     );
 
     const ATokenFactory = await ethers.getContractFactory("AToken");
@@ -48,6 +59,7 @@ describe("LendingPool - Liquidation", function () {
       await asset.getAddress(),
       await aToken.getAddress(),
       await debtToken.getAddress(),
+      await interestRateStrategy.getAddress(),
       DECIMALS,
       8000,
       8500,
@@ -126,6 +138,7 @@ describe("LendingPool - Liquidation", function () {
       await col.getAddress(),
       await aCol.getAddress(),
       await dCol.getAddress(),
+      await interestRateStrategy.getAddress(),
       DECIMALS,
       8000,
       8500,
@@ -137,6 +150,7 @@ describe("LendingPool - Liquidation", function () {
       await debt.getAddress(),
       await aDebt.getAddress(),
       await dDebt.getAddress(),
+      await interestRateStrategy.getAddress(),
       DECIMALS,
       8000,
       8500,
@@ -290,7 +304,11 @@ describe("LendingPool - Liquidation", function () {
 
     expect(userDebtAfter).to.equal(0n);
     expect(bobSpent).to.be.gt(0n);
-    expect(bobSpent).to.be.lte(userDebtBefore);
+    // bobSpent may exceed userDebtBefore by a tiny amount because interest accrues
+    // when _validateAndUpdateLiquidation calls _updateReserve mid-transaction.
+    // Allow up to 0.01% extra to account for this.
+    const tolerance = userDebtBefore / 10000n;
+    expect(bobSpent).to.be.lte(userDebtBefore + tolerance);
   });
 
   it("collateral cap", async function () {

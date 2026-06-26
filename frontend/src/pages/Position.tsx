@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useAccount } from "wagmi";
+import { useConnection as useAccount } from "wagmi";
 import Navbar from "../components/Navbar";
 import AccountSummary from "../components/AccountSummary";
 import ActionModal, { type ActionType } from "../components/ActionModal";
@@ -51,7 +51,7 @@ function AssetPositionRow({
     return (
       <tr className="border-b border-slate-800/60">
         <td colSpan={5} className="px-5 py-4 text-sm text-slate-600">
-          Đang tải…
+          Loading...
         </td>
       </tr>
     );
@@ -122,7 +122,7 @@ function AssetPositionRow({
               }
               className="rounded-lg bg-amber-500/10 px-3 py-1.5 text-xs font-semibold text-amber-400 hover:bg-amber-500/20 transition-colors"
             >
-              Rút
+              Withdraw
             </button>
           )}
           {userReserveData && userReserveData.debtAmount > 0n && (
@@ -130,7 +130,7 @@ function AssetPositionRow({
               onClick={() => onAction("repay", asset, symbol, decimals, aToken)}
               className="rounded-lg bg-purple-500/10 px-3 py-1.5 text-xs font-semibold text-purple-400 hover:bg-purple-500/20 transition-colors"
             >
-              Trả nợ
+              Repay
             </button>
           )}
         </div>
@@ -164,15 +164,15 @@ function Position() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50 md:pl-72">
+    <div className="min-h-screen bg-slate-950 text-slate-50">
       <Navbar />
-      <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
+      <main className="mx-auto min-h-screen max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <div className="mb-6">
           <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
             Portfolio
           </p>
           <h1 className="mt-1 text-2xl font-bold text-slate-50">
-            Vị thế của tôi
+            My positions
           </h1>
         </div>
 
@@ -180,7 +180,9 @@ function Position() {
 
         {!isConnected ? (
           <div className="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-10 text-center">
-            <p className="text-slate-500">Kết nối ví để xem vị thế của bạn</p>
+            <p className="text-slate-500">
+              Connect your wallet to view your positions.
+            </p>
           </div>
         ) : isLoading ? (
           <div className="mt-6 flex justify-center py-10">
@@ -190,14 +192,14 @@ function Position() {
           <div className="mt-2 rounded-xl border border-slate-800 bg-slate-950">
             <div className="px-6 py-4 border-b border-slate-800">
               <h2 className="text-base font-semibold text-slate-100">
-                Vị thế theo asset
+                Positions by asset
               </h2>
             </div>
             <div className="overflow-x-auto">
               <table className="min-w-full border-separate border-spacing-0">
                 <thead className="bg-slate-900">
                   <tr>
-                    {["Asset", "Collateral", "Nợ", "Thao tác"].map((h) => (
+                    {["Asset", "Collateral", "Debt", "Actions"].map((h) => (
                       <th
                         key={h}
                         className="border-b border-slate-800 px-5 py-3 text-left text-xs font-semibold uppercase tracking-wider text-slate-400"
@@ -234,7 +236,7 @@ function Position() {
             </div>
             {reserves.length === 0 && (
               <div className="px-6 py-8 text-center text-sm text-slate-600">
-                Chưa có vị thế nào.
+                No positions yet.
               </div>
             )}
           </div>

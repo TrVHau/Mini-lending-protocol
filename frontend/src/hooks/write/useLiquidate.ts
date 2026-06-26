@@ -8,11 +8,14 @@
 // - LendingPool.liquidate(collateralAsset, debtAsset, user, debtToCover).
 // Transform:
 // - Theo doi hash va trang thai confirm transaction.
+// - Invalidate all query caches on success so UI data refetches.
 // Return:
 // - { liquidate, hash, isPending, isSuccess, error }
 
+import { useEffect } from "react";
 import { useWriteContract, useWaitForTransactionReceipt } from "wagmi";
 import { LENDING_POOL_ADDRESS, LENDING_POOL_ABI } from "../../config/contracts";
+import useInvalidateQueries from "../useInvalidateQueries";
 
 function useLiquidate(
   collateralAsset: `0x${string}` | null | undefined,
@@ -20,6 +23,7 @@ function useLiquidate(
   userAddress: `0x${string}` | null | undefined,
   debtToCover: bigint | null | undefined,
 ) {
+  const invalidate = useInvalidateQueries();
   const liquidateTx = useWriteContract();
 
   const hash = liquidateTx.data;
@@ -34,6 +38,10 @@ function useLiquidate(
       enabled: !!hash,
     },
   });
+
+  useEffect(() => {
+    if (isSuccess) invalidate();
+  }, [isSuccess]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const canLiquidate =
     !!collateralAsset &&

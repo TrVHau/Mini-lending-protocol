@@ -1,31 +1,10 @@
-// Purpose:
-// - Doc du lieu reserve theo asset (aToken, debtToken, LTV, indexes, v.v.).
-// Input:
-// - reserveAddress: dia chi asset trong LendingPool.
-// Guard:
-// - Chi goi contract khi reserveAddress ton tai (enabled = !!reserveAddress).
-// Contract:
-// - LendingPool.getReserveData(asset).
-// Transform:
-// - Map tuple thanh object co field ro rang cho UI.
-// Return:
-// - { reserveData, isLoading, error }
-
 import { useReadContract } from "wagmi";
 import { LENDING_POOL_ADDRESS, LENDING_POOL_ABI } from "../../config/contracts";
 import { useMemo } from "react";
-// address aToken,
-// address debtToken,
-// uint8 assetDecimals,
-// bool isActive,
-// bool isFrozen,
-// uint16 ltvBps,
-// uint16 liquidationThresholdBps,
-// uint16 liquidationBonusBps,
-// uint16 reserveFactorBps,
-// uint256 liquidityIndexRay,
-// uint256 borrowIndexRay,
-// uint40 lastUpdateTimestamp
+
+const RAY = 1e27;
+const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
+
 type ReserveData = {
   aToken: `0x${string}`;
   debtToken: `0x${string}`;
@@ -39,10 +18,16 @@ type ReserveData = {
   liquidityIndexRay: bigint;
   borrowIndexRay: bigint;
   lastUpdateTimestamp: bigint;
+  supplyAPY: number;
+  borrowAPY: number;
 };
 
+function rayPerSecondToApy(rateRayPerSecond: bigint): number {
+  return (Number(rateRayPerSecond) * SECONDS_PER_YEAR * 100) / RAY;
+}
+
 function useReserveData(reserveAddress?: `0x${string}`) {
-  const { data, isLoading, error } = useReadContract({
+  const reserveQuery = useReadContract({
     address: LENDING_POOL_ADDRESS,
     abi: LENDING_POOL_ABI,
     functionName: "getReserveData",
@@ -50,8 +35,16 @@ function useReserveData(reserveAddress?: `0x${string}`) {
     query: { enabled: !!reserveAddress },
   });
 
+  const ratesQuery = useReadContract({
+    address: LENDING_POOL_ADDRESS,
+    abi: LENDING_POOL_ABI,
+    functionName: "getReserveRates",
+    args: reserveAddress ? [reserveAddress] : undefined,
+    query: { enabled: !!reserveAddress },
+  });
+
   const reserveData = useMemo(() => {
-    if (!data) return undefined;
+    if (!reserveQuery.data) return undefined;
     const [
       aToken,
       debtToken,
@@ -65,7 +58,7 @@ function useReserveData(reserveAddress?: `0x${string}`) {
       liquidityIndexRay,
       borrowIndexRay,
       lastUpdateTimestamp,
-    ] = data as [
+    ] = reserveQuery.data as [
       `0x${string}`,
       `0x${string}`,
       bigint,
@@ -79,6 +72,9 @@ function useReserveData(reserveAddress?: `0x${string}`) {
       bigint,
       bigint,
     ];
+    const [liquidityRateRayPerSecond, borrowRateRayPerSecond] =
+      (ratesQuery.data as [bigint, bigint] | undefined) ?? [0n, 0n];
+
     return {
       aToken,
       debtToken,
@@ -92,10 +88,16 @@ function useReserveData(reserveAddress?: `0x${string}`) {
       liquidityIndexRay,
       borrowIndexRay,
       lastUpdateTimestamp,
+      supplyAPY: rayPerSecondToApy(liquidityRateRayPerSecond),
+      borrowAPY: rayPerSecondToApy(borrowRateRayPerSecond),
     } as ReserveData;
-  }, [data]);
+  }, [reserveQuery.data, ratesQuery.data]);
 
-  return { reserveData, isLoading, error };
+  return {
+    reserveData,
+    isLoading: reserveQuery.isLoading || ratesQuery.isLoading,
+    error: reserveQuery.error || ratesQuery.error,
+  };
 }
 
 export default useReserveData;

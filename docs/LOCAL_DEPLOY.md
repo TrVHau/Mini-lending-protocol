@@ -1,5 +1,7 @@
 # Local Deploy Guide (Hardhat)
 
+_Meta: Mini Lending Protocol / docs/LOCAL_DEPLOY.md_
+
 ## 0) Pre-req
 
 From repo root:
@@ -41,6 +43,16 @@ const LendingPool = await ethers.getContractFactory("LendingPool");
 const pool = await LendingPool.deploy(oracle.target, deployer.address);
 await pool.waitForDeployment();
 
+// Deploy interest rate strategy (annual WAD rates, optimal utilization in RAY)
+const InterestRateStrategy = await ethers.getContractFactory("DefaultInterestRateStrategy");
+const interestRateStrategy = await InterestRateStrategy.deploy(
+  0,
+  ethers.parseUnits("0.04", 18),
+  ethers.parseUnits("0.75", 18),
+  ethers.parseUnits("0.8", 27),
+);
+await interestRateStrategy.waitForDeployment();
+
 // Deploy mock assets
 const MockERC20 = await ethers.getContractFactory("MockERC20");
 const weth = await MockERC20.deploy("Wrapped Ether", "WETH", 18);
@@ -68,6 +80,7 @@ await pool.initReserve(
   weth.target,
   aWETH.target,
   dWETH.target,
+  interestRateStrategy.target,
   18,
   7500,
   8000,
@@ -79,6 +92,7 @@ await pool.initReserve(
   dai.target,
   aDAI.target,
   dDAI.target,
+  interestRateStrategy.target,
   18,
   8000,
   8500,
@@ -96,6 +110,7 @@ await dai.mint(user.address, ethers.parseUnits("10000", 18));
 
 console.log("Oracle:", oracle.target);
 console.log("LendingPool:", pool.target);
+console.log("InterestRateStrategy:", interestRateStrategy.target);
 console.log(
   "WETH:",
   weth.target,
@@ -109,7 +124,8 @@ console.log("DAI:", dai.target, "aDAI:", aDAI.target, "dDAI:", dDAI.target);
 
 ## 3) Quick flow to verify (optional)
 
-In console, use `user` to approve and deposit:
+In console, use `user` to approve and supply. The Solidity function is still
+named `deposit`:
 
 ```js
 const userWeth = weth.connect(user);
@@ -132,5 +148,21 @@ await oracle.setPrice(weth.target, ethers.parseUnits("1000", 8));
 ## Notes
 
 - `PRICE_DECIMALS = 8` in `MockPriceOracle`, so use `ethers.parseUnits(value, 8)`.
+- `scripts/deploy-local.ts` seeds several demo users with supply/borrow positions; the manual console snippet above is the minimal setup path.
 - Update frontend config with the deployed addresses.
-- If you add more assets, repeat: deploy token + aToken + debtToken + `initReserve` + `setPrice`.
+
+### Update frontend addresses
+
+After a successful deploy, update these files in the frontend to reflect deployed addresses used by the UI:
+
+- `frontend/src/config/contracts.ts` — update `LENDING_POOL_ADDRESS` and token addresses.
+- `frontend/src/config/deploy_local.txt` — optional human-readable record used by the frontend.
+
+You can echo addresses into `deploy_local.txt` from the console session, e.g.:
+
+```js
+console.log("LENDING_POOL=", pool.target);
+// copy values into frontend/src/config/deploy_local.txt or update contracts.ts
+```
+
+- If you add more assets, repeat: deploy token + aToken + debtToken + pass the strategy to `initReserve` + `setPrice`.

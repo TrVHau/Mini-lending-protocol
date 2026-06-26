@@ -1,14 +1,13 @@
-// AssetDetail: Chi tiết 1 asset — APY, LTV, thông tin reserve, + form action theo asset.
 import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
-import { useAccount } from "wagmi";
-import Navbar from "../components/Navbar";
+import { Link, useParams } from "react-router-dom";
+import { useConnection as useAccount } from "wagmi";
 import ActionModal, { type ActionType } from "../components/ActionModal";
+import Navbar from "../components/Navbar";
 import {
-  useReserveData,
-  useUserReserveData,
-  useTokenBalance,
   useMarketOverview,
+  useReserveData,
+  useTokenBalance,
+  useUserReserveData,
 } from "../hooks";
 
 const WAD = 1e18;
@@ -21,27 +20,38 @@ function formatUsd(wad: bigint) {
   });
 }
 
-function formatToken(amount: bigint, decimals: number): string {
-  const val = Number(amount) / 10 ** decimals;
-  return val.toLocaleString("en-US", { maximumFractionDigits: 4 });
+function formatToken(amount: bigint | null | undefined, decimals: number) {
+  if (amount === null || amount === undefined) return "--";
+  const value = Number(amount) / 10 ** decimals;
+  return value.toLocaleString("en-US", { maximumFractionDigits: 4 });
+}
+
+function formatApy(value: number | undefined) {
+  if (value === undefined || !Number.isFinite(value)) return "--";
+  return `${value.toFixed(value < 0.01 && value > 0 ? 4 : 2)}%`;
+}
+
+function formatBps(value: bigint | undefined) {
+  if (value === undefined) return "--";
+  return `${(Number(value) / 100).toFixed(0)}%`;
 }
 
 function StatCard({
   label,
   value,
   sub,
+  accent = "text-slate-50",
 }: {
   label: string;
   value: string;
   sub?: string;
+  accent?: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
-        {label}
-      </p>
-      <p className="mt-2 text-xl font-bold text-slate-50">{value}</p>
-      {sub && <p className="mt-0.5 text-xs text-slate-500">{sub}</p>}
+    <div className="rounded-lg border border-slate-800 bg-slate-950/80 p-4">
+      <p className="text-xs font-medium text-slate-500">{label}</p>
+      <p className={`mt-2 text-xl font-semibold ${accent}`}>{value}</p>
+      {sub && <p className="mt-1 text-xs text-slate-500">{sub}</p>}
     </div>
   );
 }
@@ -62,12 +72,12 @@ function AssetDetail() {
 
   if (!asset) {
     return (
-      <div className="min-h-screen bg-slate-950 text-slate-50 md:pl-72">
+      <div className="min-h-screen bg-slate-950 text-slate-50">
         <Navbar />
-        <main className="px-6 py-10 text-center text-slate-500">
-          Địa chỉ asset không hợp lệ.{" "}
-          <Link to="/markets" className="text-blue-400 hover:underline">
-            Quay lại Markets
+        <main className="mx-auto max-w-7xl px-4 py-10 text-center text-slate-500 sm:px-6 lg:px-8">
+          Invalid asset address.{" "}
+          <Link to="/markets" className="text-cyan-300 hover:underline">
+            Back to Markets
           </Link>
         </main>
       </div>
@@ -77,210 +87,234 @@ function AssetDetail() {
   const meta = tokenMetaByAsset?.[asset];
   const stats = marketStatsByAsset?.[asset];
   const symbol = meta?.symbol ?? asset.slice(2, 6).toUpperCase();
-  const name = meta?.name ?? `${asset.slice(0, 8)}…${asset.slice(-4)}`;
+  const name = meta?.name ?? `${asset.slice(0, 8)}...${asset.slice(-4)}`;
   const decimals = Number(reserveData?.assetDecimals ?? 18);
+  const totalDeposits = stats?.totalDeposits;
+  const totalBorrowed = stats?.totalBorrowed;
+  const utilization =
+    totalDeposits !== undefined &&
+    totalDeposits > 0n &&
+    totalBorrowed !== undefined
+      ? (Number(totalBorrowed) / Number(totalDeposits)) * 100
+      : 0;
 
-  // APY rates are not exposed by `getReserveData` (only indexes are),
-  // so show as unavailable for now.
-  // APY not available from getReserveData; show placeholder
-
-  const ltv =
-    reserveData?.ltvBps !== undefined
-      ? `${(Number(reserveData.ltvBps) / 100).toFixed(0)}%`
-      : "--";
-  const liqThreshold =
-    reserveData?.liquidationThresholdBps !== undefined
-      ? `${(Number(reserveData.liquidationThresholdBps) / 100).toFixed(0)}%`
-      : "--";
-  const liqBonus =
-    reserveData?.liquidationBonusBps !== undefined
-      ? `${(Number(reserveData.liquidationBonusBps) / 100 - 100).toFixed(0)}%`
-      : "--";
-
-  const totalDeposits = stats?.totalDeposits
-    ? formatToken(stats.totalDeposits, decimals)
-    : "--";
-  const availableLiquidity = stats?.availableLiquidity
-    ? formatToken(stats.availableLiquidity, decimals)
-    : "--";
-
-  const ACTION_BTNS: {
+  const actionButtons: {
     action: ActionType;
     label: string;
     color: string;
     disabled?: boolean;
   }[] = [
     {
-      action: "deposit",
-      label: "Nạp",
-      color: "bg-emerald-500 hover:bg-emerald-600",
+      action: "supply",
+      label: "Supply",
+      color: "bg-emerald-400 text-slate-950 hover:bg-emerald-300",
     },
     {
       action: "withdraw",
-      label: "Rút",
-      color: "bg-amber-500 hover:bg-amber-600",
+      label: "Withdraw",
+      color: "bg-slate-800 text-slate-100 hover:bg-slate-700",
       disabled: !userReserveData || userReserveData.collateralAmount === 0n,
     },
-    { action: "borrow", label: "Vay", color: "bg-blue-500 hover:bg-blue-600" },
+    {
+      action: "borrow",
+      label: "Borrow",
+      color: "bg-cyan-400 text-slate-950 hover:bg-cyan-300",
+    },
     {
       action: "repay",
-      label: "Trả nợ",
-      color: "bg-purple-500 hover:bg-purple-600",
+      label: "Repay",
+      color: "bg-slate-800 text-slate-100 hover:bg-slate-700",
       disabled: !userReserveData || userReserveData.debtAmount === 0n,
     },
   ];
 
   return (
-    <div className="min-h-screen bg-slate-950 text-slate-50 md:pl-72">
+    <div className="min-h-screen bg-slate-950 text-slate-50">
       <Navbar />
-      <main className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
-        {/* Back */}
+      <main className="mx-auto min-h-screen max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
         <Link
           to="/markets"
-          className="mb-5 inline-flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
+          className="mb-5 inline-flex text-xs font-medium text-slate-500 transition-colors hover:text-cyan-300"
         >
-          ← Quay lại Markets
+          Back to Markets
         </Link>
 
-        {/* Header */}
-        <div className="mb-6 flex items-center gap-4">
-          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-linear-to-br from-slate-700 to-slate-800 text-lg font-bold text-slate-100 border border-slate-600 shadow-lg">
-            {symbol.slice(0, 3)}
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-slate-50">{name}</h1>
-            <div className="mt-1 flex items-center gap-2">
-              <span className="rounded-full bg-slate-800 px-2.5 py-0.5 text-xs font-mono text-slate-400">
-                {symbol}
-              </span>
-              {reserveData?.isActive ? (
-                <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-400">
-                  Active
+        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <div className="flex h-14 w-14 items-center justify-center rounded-full border border-cyan-300/20 bg-cyan-300/10 text-lg font-bold text-cyan-100">
+              {symbol.slice(0, 3)}
+            </div>
+            <div>
+              <h1 className="text-3xl font-semibold text-slate-50">{name}</h1>
+              <div className="mt-2 flex flex-wrap items-center gap-2">
+                <span className="rounded-full bg-slate-900 px-2.5 py-1 font-mono text-xs text-slate-400">
+                  {symbol}
                 </span>
-              ) : (
-                <span className="rounded-full bg-red-500/10 px-2 py-0.5 text-xs text-red-400">
-                  Inactive
+                <span className="rounded-full bg-slate-900 px-2.5 py-1 text-xs text-slate-400">
+                  {reserveData?.isActive ? "Active" : "Inactive"}
                 </span>
-              )}
-              {reserveData?.isFrozen && (
-                <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs text-amber-400">
-                  Frozen
-                </span>
-              )}
+                {reserveData?.isFrozen && (
+                  <span className="rounded-full bg-amber-400/10 px-2.5 py-1 text-xs text-amber-300">
+                    Frozen
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         </div>
 
         {isLoading ? (
           <div className="flex justify-center py-12">
-            <span className="h-8 w-8 animate-spin rounded-full border-2 border-slate-600 border-t-blue-400" />
+            <span className="h-8 w-8 animate-spin rounded-full border-2 border-slate-600 border-t-cyan-400" />
           </div>
         ) : (
-          <>
-            {/* Market stats */}
-            <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-              <StatCard label="Supply APY" value={"--"} sub="Lãi suất nạp" />
-              <StatCard label="Borrow APY" value={"--"} sub="Lãi suất vay" />
-              <StatCard
-                label="Tổng Deposit"
-                value={`${totalDeposits} ${symbol}`}
-                sub="aToken total supply"
-              />
-              <StatCard
-                label="Thanh khoản"
-                value={`${availableLiquidity} ${symbol}`}
-                sub="Có thể vay ngay"
-              />
-            </div>
-
-            {/* Risk params */}
-            <div className="mb-6 rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-              <h2 className="mb-4 text-sm font-semibold text-slate-300">
-                Thông số rủi ro
-              </h2>
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
-                {[
-                  { label: "LTV", value: ltv },
-                  { label: "Ngưỡng thanh lý", value: liqThreshold },
-                  { label: "Bonus thanh lý", value: liqBonus },
-                  { label: "Decimals", value: decimals.toString() },
-                ].map(({ label, value }) => (
-                  <div key={label}>
-                    <p className="text-xs text-slate-500">{label}</p>
-                    <p className="mt-0.5 text-sm font-semibold text-slate-200">
-                      {value}
-                    </p>
-                  </div>
-                ))}
+          <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
+            <div className="space-y-6">
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+                <StatCard
+                  label="Supply APY"
+                  value={formatApy(reserveData?.supplyAPY)}
+                  accent="text-emerald-300"
+                />
+                <StatCard
+                  label="Borrow APY"
+                  value={formatApy(reserveData?.borrowAPY)}
+                  accent="text-cyan-300"
+                />
+                <StatCard
+                  label="Total supplied"
+                  value={`${formatToken(stats?.totalDeposits, decimals)} ${symbol}`}
+                />
+                <StatCard
+                  label="Available liquidity"
+                  value={`${formatToken(stats?.availableLiquidity, decimals)} ${symbol}`}
+                />
               </div>
-            </div>
 
-            {/* User position */}
-            {userAddress && (
-              <div className="mb-6 rounded-xl border border-slate-800 bg-slate-900/60 p-5">
-                <h2 className="mb-4 text-sm font-semibold text-slate-300">
-                  Vị thế của bạn
-                </h2>
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+              <section className="rounded-lg border border-slate-800 bg-slate-950/80 p-5">
+                <div className="mb-5 flex items-center justify-between gap-4">
                   <div>
-                    <p className="text-xs text-slate-500">Số dư ví</p>
-                    <p className="mt-0.5 text-sm font-semibold text-slate-200">
-                      {walletBalance !== null
-                        ? `${formatToken(walletBalance as bigint, decimals)} ${symbol}`
-                        : "--"}
+                    <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+                      Reserve status
                     </p>
+                    <h2 className="mt-1 text-lg font-semibold text-slate-50">
+                      Utilization and risk parameters
+                    </h2>
                   </div>
-                  <div>
-                    <p className="text-xs text-slate-500">Collateral đã nạp</p>
-                    <p className="mt-0.5 text-sm font-semibold text-emerald-400">
-                      {userReserveData
-                        ? `${formatToken(userReserveData.collateralAmount, decimals)} ${symbol}`
-                        : "--"}
+                  <div className="text-right">
+                    <p className="text-xs text-slate-500">Utilization</p>
+                    <p className="text-lg font-semibold text-cyan-300">
+                      {utilization.toFixed(2)}%
                     </p>
-                    {userReserveData &&
-                      userReserveData.collateralUsdWad > 0n && (
-                        <p className="text-xs text-slate-500">
-                          {formatUsd(userReserveData.collateralUsdWad)}
-                        </p>
-                      )}
-                  </div>
-                  <div>
-                    <p className="text-xs text-slate-500">Nợ hiện tại</p>
-                    <p className="mt-0.5 text-sm font-semibold text-red-400">
-                      {userReserveData
-                        ? `${formatToken(userReserveData.debtAmount, decimals)} ${symbol}`
-                        : "--"}
-                    </p>
-                    {userReserveData && userReserveData.debtUsdWad > 0n && (
-                      <p className="text-xs text-slate-500">
-                        {formatUsd(userReserveData.debtUsdWad)}
-                      </p>
-                    )}
                   </div>
                 </div>
-              </div>
-            )}
+                <div className="mb-5 h-2 rounded-full bg-slate-800">
+                  <div
+                    className="h-full rounded-full bg-cyan-300"
+                    style={{ width: `${Math.min(utilization, 100)}%` }}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+                  {[
+                    { label: "LTV", value: formatBps(reserveData?.ltvBps) },
+                    {
+                      label: "Liquidation threshold",
+                      value: formatBps(reserveData?.liquidationThresholdBps),
+                    },
+                    {
+                      label: "Liquidation bonus",
+                      value:
+                        reserveData?.liquidationBonusBps !== undefined
+                          ? `${(Number(reserveData.liquidationBonusBps) / 100 - 100).toFixed(0)}%`
+                          : "--",
+                    },
+                    { label: "Decimals", value: decimals.toString() },
+                  ].map(({ label, value }) => (
+                    <div key={label}>
+                      <p className="text-xs text-slate-500">{label}</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-200">
+                        {value}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+              </section>
 
-            {/* Action buttons */}
-            <div className="flex flex-wrap gap-3">
-              {ACTION_BTNS.map(({ action, label, color, disabled }) => (
-                <button
-                  key={action}
-                  onClick={() => setModal(action)}
-                  disabled={
-                    disabled || !reserveData?.isActive || reserveData?.isFrozen
-                  }
-                  className={`rounded-xl px-8 py-3 text-sm font-semibold text-white transition-all disabled:cursor-not-allowed disabled:opacity-40 ${color}`}
-                >
-                  {label} {symbol}
-                </button>
-              ))}
+              {userAddress && (
+                <section className="rounded-lg border border-slate-800 bg-slate-950/80 p-5">
+                  <p className="text-xs font-semibold uppercase tracking-widest text-slate-500">
+                    Your position
+                  </p>
+                  <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                    <div>
+                      <p className="text-xs text-slate-500">Wallet balance</p>
+                      <p className="mt-1 text-sm font-semibold text-slate-200">
+                        {formatToken(walletBalance as bigint | null, decimals)}{" "}
+                        {symbol}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Supplied</p>
+                      <p className="mt-1 text-sm font-semibold text-emerald-300">
+                        {formatToken(
+                          userReserveData?.collateralAmount,
+                          decimals,
+                        )}{" "}
+                        {symbol}
+                      </p>
+                      {userReserveData?.collateralUsdWad !== undefined &&
+                        userReserveData.collateralUsdWad > 0n && (
+                          <p className="text-xs text-slate-500">
+                            {formatUsd(userReserveData.collateralUsdWad)}
+                          </p>
+                        )}
+                    </div>
+                    <div>
+                      <p className="text-xs text-slate-500">Borrowed</p>
+                      <p className="mt-1 text-sm font-semibold text-red-300">
+                        {formatToken(userReserveData?.debtAmount, decimals)}{" "}
+                        {symbol}
+                      </p>
+                      {userReserveData?.debtUsdWad !== undefined &&
+                        userReserveData.debtUsdWad > 0n && (
+                          <p className="text-xs text-slate-500">
+                            {formatUsd(userReserveData.debtUsdWad)}
+                          </p>
+                        )}
+                    </div>
+                  </div>
+                </section>
+              )}
             </div>
-          </>
+
+            <aside className="h-fit rounded-lg border border-slate-800 bg-slate-950/80 p-5">
+              <p className="text-xs font-semibold uppercase tracking-widest text-cyan-300">
+                Actions
+              </p>
+              <h2 className="mt-1 text-lg font-semibold text-slate-50">
+                Manage {symbol}
+              </h2>
+              <div className="mt-5 grid gap-3">
+                {actionButtons.map(({ action, label, color, disabled }) => (
+                  <button
+                    key={action}
+                    onClick={() => setModal(action)}
+                    disabled={
+                      disabled ||
+                      !reserveData?.isActive ||
+                      reserveData?.isFrozen
+                    }
+                    className={`rounded-lg px-4 py-3 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${color}`}
+                  >
+                    {label} {symbol}
+                  </button>
+                ))}
+              </div>
+            </aside>
+          </div>
         )}
       </main>
 
-      {/* Modal */}
       {modal && (
         <ActionModal
           isOpen={true}
