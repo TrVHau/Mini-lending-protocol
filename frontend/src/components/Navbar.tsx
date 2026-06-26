@@ -23,7 +23,11 @@ function Navbar() {
         <div className="flex items-center justify-between gap-4">
           <NavLink to="/dashboard" className="flex items-center gap-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-cyan-300/20 bg-cyan-300/10 text-sm font-bold text-cyan-100">
-              ML
+              <img
+                src="../../public/favicon1.png"
+                alt="Logo"
+                className="h-full w-full object-contain border border-cyan-300/20 rounded-lg"
+              />
             </span>
             <span>
               <span className="block text-sm font-bold uppercase tracking-widest text-slate-100">
