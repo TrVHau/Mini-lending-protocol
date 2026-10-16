@@ -68,7 +68,7 @@ function AssetPositionRow({
       {/* Asset */}
       <td className="px-5 py-4">
         <div className="flex items-center gap-3">
-          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-slate-700 to-slate-800 text-xs font-bold text-slate-200 border border-slate-600">
+          <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-linear-to-br from-slate-700 to-slate-800 text-xs font-bold text-slate-200 border border-slate-600">
             {symbol.slice(0, 3)}
           </div>
           <div>

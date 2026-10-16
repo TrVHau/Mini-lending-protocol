@@ -63,7 +63,7 @@ contract LendingPool is ILendingPool, Ownable {
 
     address[] private _reserveList;
     mapping(address => ReserveData) private _reserves;
-    IPriceOracle public immutable priceOracle;
+    IPriceOracle public priceOracle;
 
     // -------------------------------------------------------------------------
     // Events
@@ -95,6 +95,10 @@ contract LendingPool is ILendingPool, Ownable {
         uint256 debtCovered,
         uint256 collateralSeized
     );
+    event PriceOracleUpdated(
+        address indexed oldOracle,
+        address indexed newOracle
+    );
 
     // -------------------------------------------------------------------------
     // Constructor
@@ -108,6 +112,14 @@ contract LendingPool is ILendingPool, Ownable {
     // -------------------------------------------------------------------------
     // Admin
     // -------------------------------------------------------------------------
+
+    /// @notice Updates the price oracle contract.
+    /// @param newOracle The address of the new price oracle contract.
+    function setPriceOracle(address newOracle) external onlyOwner {
+        require(newOracle != address(0), "ORACLE_ZERO");
+        emit PriceOracleUpdated(address(priceOracle), newOracle);
+        priceOracle = IPriceOracle(newOracle);
+    }
 
     /// @notice Registers a new reserve with its tokens, strategy, and risk params.
     ///         Can only be called by the owner and only once per asset.
