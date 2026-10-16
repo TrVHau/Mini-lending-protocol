@@ -1,4 +1,4 @@
-import { useConnection as useAccount } from "wagmi";
+import { useAccount } from "wagmi";
 import { useUserAccountData } from "../hooks";
 
 const WAD = 1e18;
