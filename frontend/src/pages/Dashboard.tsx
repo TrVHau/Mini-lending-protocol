@@ -1,4 +1,5 @@
-import { useConnection as useAccount } from "wagmi";
+import { Link } from "react-router-dom";
+import { useAccount } from "wagmi";
 import AccountSummary from "../components/AccountSummary";
 import Navbar from "../components/Navbar";
 import { useMarketOverview, useUserReserveData } from "../hooks";
@@ -67,15 +68,20 @@ function PositionRow({
 
   return (
     <div className="grid gap-4 rounded-lg border border-slate-800 bg-slate-950/80 p-4 sm:grid-cols-[1fr_auto] sm:items-center">
-      <div className="flex items-center gap-3">
+      <Link
+        to={`/asset/${asset}`}
+        className="group flex items-center gap-3 transition-opacity hover:opacity-80"
+      >
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-cyan-300/20 bg-cyan-300/10 text-xs font-bold text-cyan-100">
           {symbol.slice(0, 3)}
         </div>
         <div>
-          <p className="text-sm font-semibold text-slate-50">{name}</p>
+          <p className="text-sm font-semibold text-slate-50 transition-colors group-hover:text-cyan-300">
+            {name}
+          </p>
           <p className="text-xs text-slate-500">{symbol}</p>
         </div>
-      </div>
+      </Link>
 
       <div className="grid grid-cols-3 gap-3 text-sm sm:min-w-96">
         <div>
@@ -95,6 +101,14 @@ function PositionRow({
           <p className="text-xs text-slate-500">
             {mode === "supply" ? "Collateral enabled" : "Variable rate"}
           </p>
+        </div>
+        <div className="flex items-center justify-end">
+          <Link
+            to={`/asset/${asset}`}
+            className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-200 transition-colors hover:border-cyan-300/50 hover:text-cyan-200"
+          >
+            Manage
+          </Link>
         </div>
       </div>
     </div>

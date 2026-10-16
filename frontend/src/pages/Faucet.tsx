@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { useConnection as useAccount } from "wagmi";
+import { useAccount } from "wagmi";
 import Navbar from "../components/Navbar";
 import {
   useMarketOverview,

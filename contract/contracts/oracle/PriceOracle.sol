@@ -13,13 +13,19 @@ contract PriceOracle is Ownable, IPriceOracle {
     uint256 public maxPriceAge = 2 days;
 
     event PriceFeedUpdated(address indexed token, address indexed priceFeed);
+    event PriceFeedRemoved(address indexed token);
     event MaxPriceAgeUpdated(uint256 oldMaxPriceAge, uint256 newMaxPriceAge);
 
     constructor() Ownable(msg.sender) {}
 
-    function setPriceFeed(address token, address _priceFeed) external onlyOwner {
+    function setPriceFeed(address token, address _priceFeed) public onlyOwner {
         require(token != address(0), "PriceOracle: token is zero address");
-        require(_priceFeed != address(0), "PriceOracle: price feed is zero address");
+        if (_priceFeed == address(0)) {
+            priceFeeds[token] = address(0);
+            emit PriceFeedRemoved(token);
+            return;
+        }
+
         require(_priceFeed.code.length > 0, "PriceOracle: feed is not contract");
 
         uint8 feedDecimals = AggregatorV3Interface(_priceFeed).decimals();
@@ -27,6 +33,17 @@ contract PriceOracle is Ownable, IPriceOracle {
 
         priceFeeds[token] = _priceFeed;
         emit PriceFeedUpdated(token, _priceFeed);
+    }
+
+    function setPriceFeeds(address[] calldata tokens, address[] calldata _priceFeeds) external onlyOwner {
+        require(tokens.length == _priceFeeds.length, "PriceOracle: length mismatch");
+        for (uint256 i = 0; i < tokens.length; i++) {
+            setPriceFeed(tokens[i], _priceFeeds[i]);
+        }
+    }
+
+    function removePriceFeed(address token) external onlyOwner {
+        setPriceFeed(token, address(0));
     }
 
     /// @notice Sets the maximum accepted age for oracle data.

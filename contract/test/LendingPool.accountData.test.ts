@@ -22,8 +22,9 @@ describe("LendingPool - accountData", function () {
     const MockERC20 = await ethers.getContractFactory("MockERC20");
     asset = await MockERC20.deploy("Mock DAI", "DAI", DECIMALS);
 
-    const MockPriceOracle = await ethers.getContractFactory("MockPriceOracle");
-    oracle = await MockPriceOracle.deploy(await owner.getAddress());
+    const PriceOracle = await ethers.getContractFactory("PriceOracle");
+    oracle = await PriceOracle.deploy();
+    await oracle.setMaxPriceAge(0);
 
     const LendingPool = await ethers.getContractFactory("LendingPool");
     pool = await LendingPool.deploy(
@@ -67,7 +68,9 @@ describe("LendingPool - accountData", function () {
       1000,
     );
 
-    await oracle.setPrice(await asset.getAddress(), ONE);
+    const MockV3Aggregator = await ethers.getContractFactory("MockV3Aggregator");
+    const feed = await MockV3Aggregator.deploy(8, ONE);
+    await oracle.setPriceFeed(await asset.getAddress(), await feed.getAddress());
     await asset.mint(await bob.getAddress(), ethers.parseUnits("1000", DECIMALS));
     await asset.mint(
       await alice.getAddress(),
@@ -127,7 +130,9 @@ describe("LendingPool - accountData", function () {
     );
 
     if (params?.price !== undefined) {
-      await oracle.setPrice(await otherAsset.getAddress(), params.price);
+      const MockV3Aggregator = await ethers.getContractFactory("MockV3Aggregator");
+      const otherFeed = await MockV3Aggregator.deploy(8, params.price);
+      await oracle.setPriceFeed(await otherAsset.getAddress(), await otherFeed.getAddress());
     }
 
     await otherAsset.mint(await bob.getAddress(), ethers.parseUnits("1000", DECIMALS));
@@ -166,7 +171,7 @@ describe("LendingPool - accountData", function () {
 
     await expect(
       pool.getUserAccountData(await alice.getAddress()),
-    ).to.be.revertedWith("PRICE_NOT_SET");
+    ).to.be.revertedWith("PriceOracle: price feed not set for token");
   });
 
   it("returns correct values for deposit-only position", async function () {

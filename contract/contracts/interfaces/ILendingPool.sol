@@ -1,6 +1,8 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
+import "./IPriceOracle.sol";
+
 /// @title ILendingPool
 /// @notice External interface for the core lending pool.
 interface ILendingPool {
@@ -50,4 +52,10 @@ interface ILendingPool {
         uint256 maxBorrowUsdWad,
         uint256 healthFactorWad
     );
+
+    /// @notice Updates the price oracle used by the lending pool.
+    function setPriceOracle(address newOracle) external;
+
+    /// @notice Returns the address of the current price oracle.
+    function priceOracle() external view returns (IPriceOracle);
 }

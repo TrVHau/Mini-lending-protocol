@@ -11,18 +11,33 @@ describe("LendingPool - Liquidation", function () {
   let aToken: any;
   let debtToken: any;
   let interestRateStrategy: any;
+  let feeds: Record<string, any> = {};
+
+  async function setPrice(assetAddr: string, price: bigint) {
+    if (!feeds[assetAddr]) {
+      const MockV3Aggregator = await ethers.getContractFactory("MockV3Aggregator");
+      const feed = await MockV3Aggregator.deploy(8, price);
+      await feed.waitForDeployment();
+      await oracle.setPriceFeed(assetAddr, await feed.getAddress());
+      feeds[assetAddr] = feed;
+    } else {
+      await feeds[assetAddr].updateAnswer(price);
+    }
+  }
 
   const DECIMALS = 8;
   const ONE = ethers.parseUnits("1", DECIMALS);
 
   beforeEach(async function () {
+    feeds = {};
     [owner, bob, alice] = await ethers.getSigners();
 
     const MockERC20 = await ethers.getContractFactory("MockERC20");
     asset = await MockERC20.deploy("Mock DAI", "DAI", DECIMALS);
 
-    const MockPriceOracle = await ethers.getContractFactory("MockPriceOracle");
-    oracle = await MockPriceOracle.deploy(await owner.getAddress());
+    const PriceOracle = await ethers.getContractFactory("PriceOracle");
+    oracle = await PriceOracle.deploy();
+    await oracle.setMaxPriceAge(0);
 
     const LendingPool = await ethers.getContractFactory("LendingPool");
     pool = await LendingPool.deploy(
@@ -67,7 +82,7 @@ describe("LendingPool - Liquidation", function () {
       1000,
     );
 
-    await oracle.setPrice(await asset.getAddress(), ONE);
+    await setPrice(await asset.getAddress(), ONE);
     await asset.mint(bob.getAddress(), ethers.parseUnits("1000", DECIMALS));
     await asset.mint(alice.getAddress(), ethers.parseUnits("1000", DECIMALS));
   });
@@ -175,11 +190,11 @@ describe("LendingPool - Liquidation", function () {
     const { col, debt, dDebt } = await setupTwoReserves();
 
     // set price col = 2000, deb = 1
-    await oracle.setPrice(
+    await setPrice(
       await col.getAddress(),
       ethers.parseUnits("2000", DECIMALS),
     );
-    await oracle.setPrice(await debt.getAddress(), ONE);
+    await setPrice(await debt.getAddress(), ONE);
 
     // mint + approve
     await col.mint(alice.getAddress(), ethers.parseUnits("2", DECIMALS));
@@ -205,7 +220,7 @@ describe("LendingPool - Liquidation", function () {
       .borrow(debt.getAddress(), ethers.parseUnits("1500", DECIMALS));
 
     // health position is bad, decrease col
-    await oracle.setPrice(
+    await setPrice(
       await col.getAddress(),
       ethers.parseUnits("1400", DECIMALS),
     );
@@ -243,11 +258,11 @@ describe("LendingPool - Liquidation", function () {
   it("debtToCover > userDebt", async function () {
     const { col, debt, dDebt } = await setupTwoReserves();
 
-    await oracle.setPrice(
+    await setPrice(
       await col.getAddress(),
       ethers.parseUnits("2000", DECIMALS),
     );
-    await oracle.setPrice(await debt.getAddress(), ONE);
+    await setPrice(await debt.getAddress(), ONE);
 
     await col.mint(alice.getAddress(), ethers.parseUnits("2", DECIMALS));
     await debt.mint(bob.getAddress(), ethers.parseUnits("4000", DECIMALS));
@@ -271,7 +286,7 @@ describe("LendingPool - Liquidation", function () {
       .connect(alice)
       .borrow(await debt.getAddress(), ethers.parseUnits("1000", DECIMALS));
 
-    await oracle.setPrice(
+    await setPrice(
       await col.getAddress(),
       ethers.parseUnits("550", DECIMALS),
     );
@@ -314,11 +329,11 @@ describe("LendingPool - Liquidation", function () {
   it("collateral cap", async function () {
     const { col, debt, aCol, dDebt } = await setupTwoReserves();
 
-    await oracle.setPrice(
+    await setPrice(
       await col.getAddress(),
       ethers.parseUnits("1000", DECIMALS),
     );
-    await oracle.setPrice(await debt.getAddress(), ONE);
+    await setPrice(await debt.getAddress(), ONE);
 
     await col.mint(alice.getAddress(), ethers.parseUnits("1", DECIMALS));
     await debt.mint(bob.getAddress(), ethers.parseUnits("3000", DECIMALS));
@@ -351,7 +366,7 @@ describe("LendingPool - Liquidation", function () {
     );
     expect(aliceCollateralBefore).to.be.gt(0n);
 
-    await oracle.setPrice(
+    await setPrice(
       await col.getAddress(),
       ethers.parseUnits("100", DECIMALS),
     );

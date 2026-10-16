@@ -15,9 +15,10 @@ async function main() {
   };
 
   // ── Oracle ────────────────────────────────────────────────────────────────
-  const Oracle = await ethers.getContractFactory("MockPriceOracle");
-  const oracle = await Oracle.deploy(deployer.address);
+  const PriceOracle = await ethers.getContractFactory("PriceOracle");
+  const oracle = await PriceOracle.deploy();
   await oracle.waitForDeployment();
+  await waitForTx(oracle.setMaxPriceAge(0)); // disable stale-price check for local testnet
 
   // ── Core Pool ─────────────────────────────────────────────────────────────
   const LendingPool = await ethers.getContractFactory("LendingPool");
@@ -88,11 +89,15 @@ async function main() {
     ),
   );
 
-  // Oracle Prices
-  await waitForTx(
-    oracle.setPrice(weth.target, ethers.parseUnits("2000", 8)),
-  ); // $2 000
-  await waitForTx(oracle.setPrice(dai.target, ethers.parseUnits("1", 8))); // $1
+  // Oracle Feeds
+  const MockV3Aggregator = await ethers.getContractFactory("MockV3Aggregator");
+  const wethFeed = await MockV3Aggregator.deploy(8, ethers.parseUnits("2000", 8));
+  await wethFeed.waitForDeployment();
+  const daiFeed = await MockV3Aggregator.deploy(8, ethers.parseUnits("1", 8));
+  await daiFeed.waitForDeployment();
+
+  await waitForTx(oracle.setPriceFeed(weth.target, wethFeed.target));
+  await waitForTx(oracle.setPriceFeed(dai.target, daiFeed.target));
 
   // send deployer some WETH and DAI to deposit into the pool
   await waitForTx(weth.mint(deployer.address, unit("100")));

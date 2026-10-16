@@ -1,5 +1,5 @@
 import { type ChangeEvent, useEffect, useRef, useState } from "react";
-import { useConnection as useAccount } from "wagmi";
+import { useAccount } from "wagmi";
 import { LENDING_POOL_ADDRESS } from "../config/contracts";
 import {
   useAllowance,

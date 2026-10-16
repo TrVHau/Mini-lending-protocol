@@ -24,7 +24,7 @@ function Navbar() {
           <NavLink to="/dashboard" className="flex items-center gap-3">
             <span className="flex h-9 w-9 items-center justify-center rounded-lg border border-cyan-300/20 bg-cyan-300/10 text-sm font-bold text-cyan-100">
               <img
-                src="../../public/favicon1.png"
+                src="/favicon1.png"
                 alt="Logo"
                 className="h-full w-full object-contain border border-cyan-300/20 rounded-lg"
               />
