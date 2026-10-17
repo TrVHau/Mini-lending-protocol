@@ -11,7 +11,7 @@ import {
 const RAY = 1e27;
 const SECONDS_PER_YEAR = 365 * 24 * 60 * 60;
 
-type ReserveData = {
+export type ReserveData = {
   aToken: `0x${string}`;
   debtToken: `0x${string}`;
   assetDecimals: bigint;
@@ -28,7 +28,7 @@ type ReserveData = {
 
 type ReserveDataMap = Record<`0x${string}`, ReserveData>;
 
-type ReserveRates = {
+export type ReserveRates = {
   supplyAPY: number;
   borrowAPY: number;
 };
@@ -52,14 +52,14 @@ type ReserveDataTuple = [
 
 type ReserveRatesTuple = [bigint, bigint];
 
-type TokenMeta = {
+export type TokenMeta = {
   name: string;
   symbol: string;
 };
 
 type TokenMetaMap = Record<`0x${string}`, TokenMeta>;
 
-type MarketStats = {
+export type MarketStats = {
   availableLiquidity: bigint;
   totalDeposits: bigint;
   totalBorrowed: bigint;

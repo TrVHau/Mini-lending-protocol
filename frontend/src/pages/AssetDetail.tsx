@@ -3,7 +3,9 @@ import { Link, useParams } from "react-router-dom";
 import { useAccount } from "wagmi";
 import ActionModal, { type ActionType } from "../components/ActionModal";
 import Navbar from "../components/Navbar";
+import PriceChart from "../components/PriceChart";
 import {
+  useAssetPrice,
   useMarketOverview,
   useReserveData,
   useTokenBalance,
@@ -66,6 +68,7 @@ function AssetDetail() {
     : undefined;
 
   const { reserveData, isLoading } = useReserveData(asset);
+  const { priceWad } = useAssetPrice(asset);
   const { userReserveData } = useUserReserveData(userAddress, asset);
   const { balance: walletBalance } = useTokenBalance(userAddress, asset);
   const { tokenMetaByAsset, marketStatsByAsset } = useMarketOverview();
@@ -170,6 +173,8 @@ function AssetDetail() {
         ) : (
           <div className="grid gap-6 lg:grid-cols-[1fr_360px]">
             <div className="space-y-6">
+              <PriceChart symbol={symbol} name={name} priceWad={priceWad} />
+
               <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
                 <StatCard
                   label="Supply APY"
