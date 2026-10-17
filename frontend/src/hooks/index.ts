@@ -22,3 +22,4 @@ export type { LendingPoolActionName } from "./write/useLendingPoolAction";
 export { default as useLiquidate } from "./write/useLiquidate";
 export { default as useMintMockToken } from "./write/useMintMockToken";
 export { default as useInvalidateQueries } from "./useInvalidateQueries";
+export * from "./usePriceHistory";
