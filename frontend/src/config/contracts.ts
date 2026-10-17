@@ -6,7 +6,7 @@ import PriceOracleArtifact from "../abi/PriceOracle.json";
 import type { Abi } from "viem";
 
 export const LENDING_POOL_ADDRESS =
-  "0x41bCaF5D5083Dc3338488e15262b1EDA9FC6e2e2" as const;
+  "0x3e6003FF2dEC428a7397D346e3fE4e6829b88fC2" as const;
 
 export const LENDING_POOL_ABI = lendingPoolArtifact.abi as Abi;
 export const ATOKEN_ABI = aTokenArtifact.abi as Abi;
